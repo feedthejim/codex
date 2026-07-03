@@ -6,6 +6,11 @@ width: 128px;
 border-radius: 128px;
 " />
 
+## v2.1.1
+
+- Fixes
+    - Fix unable to change password.
+
 ## v2.1.0 - Renaming
 
 - Features
