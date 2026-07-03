@@ -16,6 +16,7 @@ import { mount } from "@vue/test-utils";
 import { describe, expect, test } from "vitest";
 
 import ProfileDialog from "@/components/auth/profile-dialog.vue";
+import { useAuthStore } from "@/stores/auth";
 import vuetify from "@/plugins/vuetify";
 
 function mountDialog() {
@@ -110,6 +111,38 @@ describe("ProfileDialog Save gating", () => {
     await vm.$nextTick();
 
     expect(vm.canSubmit).toBe(true);
+  });
+});
+
+describe("ProfileDialog submit payload", () => {
+  test("forwards passwordConfirm to changePassword (issue #793)", async () => {
+    const wrapper = mountDialog();
+    const vm = wrapper.vm;
+    const store = useAuthStore();
+
+    vm.reset();
+    vm.passwordPanel = "password";
+    vm.profile.oldPassword = "old-secret";
+    vm.profile.password = "new-secret";
+    vm.profile.passwordConfirm = "new-secret";
+    await vm.$nextTick();
+
+    // Focus this test on the submitted payload, not Vuetify's async form
+    // validation (covered by the Save-gating tests above). Assign the raw
+    // internal refs object; vm.$refs is a readonly proxy.
+    vm.$.refs.form = { validate: async () => ({ valid: true }) };
+
+    await vm.submit();
+
+    // The self-service /auth/password/change endpoint (rest_registration)
+    // *requires* passwordConfirm; omitting it caused the 400 in issue #793.
+    expect(store.changePassword).toHaveBeenCalledWith(
+      expect.objectContaining({
+        oldPassword: "old-secret",
+        password: "new-secret",
+        passwordConfirm: "new-secret",
+      }),
+    );
   });
 });
 

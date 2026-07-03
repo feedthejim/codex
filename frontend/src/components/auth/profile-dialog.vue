@@ -309,6 +309,7 @@ export default {
         await this.changePassword({
           oldPassword: this.profile.oldPassword,
           password: this.profile.password,
+          passwordConfirm: this.profile.passwordConfirm,
         });
       }
     },
