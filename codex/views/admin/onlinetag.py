@@ -2,6 +2,7 @@
 
 import contextlib
 import uuid
+from dataclasses import fields
 
 from rest_framework.response import Response
 from rest_framework.status import HTTP_202_ACCEPTED, HTTP_409_CONFLICT
@@ -147,6 +148,12 @@ class AdminOnlineTagResumeView(AdminAPIView):
         params = dict(resume.get("params") or {})
         # sources round-trips through JSON as a list; the task wants a tuple.
         params["sources"] = tuple(params.get("sources") or ())
+        # A resume descriptor persists to a file-based cache, so one written by
+        # an older Codex may carry keys a task field no longer accepts (e.g. the
+        # removed ``effort`` knob). Drop unknown keys so resuming across an
+        # upgrade rebuilds the task instead of raising TypeError.
+        valid_fields = {f.name for f in fields(BulkOnlineTagTask)}
+        params = {k: v for k, v in params.items() if k in valid_fields}
         session_id = str(uuid.uuid4())
         task = BulkOnlineTagTask(
             comic_pks=frozenset(remaining),

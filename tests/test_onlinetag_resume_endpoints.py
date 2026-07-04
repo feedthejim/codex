@@ -26,7 +26,6 @@ _PARAMS: Final = {
     "sources": ["metron", "comicvine"],
     "mode": "auto",
     "prompts_mode": "ask",
-    "effort": "balanced",
     "auto_threshold": 0.85,
     "delete_original": False,
     "merge_all_sources": False,

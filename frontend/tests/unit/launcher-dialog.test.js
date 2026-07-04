@@ -374,7 +374,7 @@ describe("OnlineTagLauncherDialog", () => {
       expect(wrapper.vm.canMerge).toBe(false);
     });
 
-    test("doubles the estimated calls when merging two sources", async () => {
+    test("sums per-source calls when merging two sources", async () => {
       const { wrapper } = mountDialog({
         book: { collection: "series", pk: 3, ids: [3], childCount: 10 },
       });
@@ -382,12 +382,14 @@ describe("OnlineTagLauncherDialog", () => {
       wrapper.vm.activeTab = "search";
       wrapper.vm.sources = ["metron", "comicvine"];
       await wrapper.vm.$nextTick();
-      const firstWinsCalls = wrapper.vm.totalCalls;
+      // First-match-wins bills the costliest source: max(metron 2, comicvine
+      // auto 3) = 3 calls/comic x 10 comics.
+      expect(wrapper.vm.totalCalls).toBe(30);
 
       wrapper.vm.mergeAllSources = true;
       await wrapper.vm.$nextTick();
-
-      expect(wrapper.vm.totalCalls).toBe(firstWinsCalls * 2);
+      // Merge sums per-source calls: (metron 2 + comicvine 3) x 10 comics.
+      expect(wrapper.vm.totalCalls).toBe(50);
     });
   });
 });

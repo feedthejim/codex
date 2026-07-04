@@ -58,7 +58,6 @@ class OnlineTagStartSerializer(Serializer):
     )
     mode = CharField(required=False, default="auto")
     prompts_mode = CharField(required=False, default="ask")
-    effort = CharField(required=False, default="balanced")
     auto_threshold = CharField(required=False, default="0.85")
     dry_run = CharField(required=False, default="false")
     delete_original = BooleanField(required=False, default=None)

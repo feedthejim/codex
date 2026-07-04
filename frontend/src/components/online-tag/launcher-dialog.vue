@@ -204,11 +204,25 @@ const SOURCE_RATES = {
   comicvine: { perMinute: 3, perHour: 200, label: "Comic Vine" },
 };
 
-const MATCH_MODE_CALLS_PER_COMIC = {
+// API calls per comic, per source. Keep in sync with
+// codex/librarian/onlinetag/estimate.py. Metron (comicbox 4.0.5+) is a flat
+// two-step search (series_list + issues_list) that match mode doesn't change;
+// Comic Vine's count scales with match mode.
+const METRON_CALLS_PER_COMIC = 2;
+const COMICVINE_CALLS_BY_MODE = {
   eager: 2,
   auto: 3,
   careful: 5,
 };
+const DEFAULT_CALLS_PER_COMIC = 3;
+
+function callsForSource(source, mode) {
+  if (source === "metron") return METRON_CALLS_PER_COMIC;
+  if (source === "comicvine") {
+    return COMICVINE_CALLS_BY_MODE[mode] || DEFAULT_CALLS_PER_COMIC;
+  }
+  return DEFAULT_CALLS_PER_COMIC;
+}
 
 // Only these sources support online id tagging (mirrors the backend
 // KNOWN_SOURCES); other identifiers a comic carries aren't offered.
@@ -414,18 +428,19 @@ export default {
       // Nothing to merge with fewer than two sources selected.
       return this.activeSources.length >= 2;
     },
-    callsPerComic() {
-      return MATCH_MODE_CALLS_PER_COMIC[this.matchMode] || 3;
-    },
     totalCalls() {
-      // Merge mode queries every active source per comic instead of stopping
-      // at the first match, so calls scale with the number of sources. Keep
-      // this in sync with estimate_seconds in codex/librarian/onlinetag.
-      const sourceMultiplier =
-        this.mergeAllSources && this.activeSources.length
-          ? this.activeSources.length
-          : 1;
-      return this.comicCount * this.callsPerComic * sourceMultiplier;
+      // Per-comic API calls are counted per source. Merge mode queries every
+      // active source per comic (sum); first-match-wins stops at the first
+      // source that answers, so bill the costliest single source. Keep this in
+      // sync with estimate_seconds in codex/librarian/onlinetag/estimate.py.
+      const perSource = this.activeSources.map((s) =>
+        callsForSource(s, this.matchMode),
+      );
+      if (perSource.length === 0) return 0;
+      const callsPerComic = this.mergeAllSources
+        ? perSource.reduce((sum, n) => sum + n, 0)
+        : Math.max(...perSource);
+      return this.comicCount * callsPerComic;
     },
     slowestRate() {
       let minRate = Infinity;
