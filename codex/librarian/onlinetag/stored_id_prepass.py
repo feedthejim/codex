@@ -13,23 +13,13 @@ leaving only the unidentified comics for the search session.
 
 from __future__ import annotations
 
-import re
 from typing import TYPE_CHECKING
 
+from codex.librarian.onlinetag.issue_id import parse_issue_id
 from codex.models.identifier import Identifier, IdentifierType
 
 if TYPE_CHECKING:
     from collections.abc import Collection
-
-# Comic Vine keys may be stored long-form (``4000-12345``); the issue id is the
-# trailing integer. Metron keys are already bare integers.
-_TRAILING_INT_RE = re.compile(r"(\d+)$")
-
-
-def _parse_issue_id(key: str | None) -> int | None:
-    """Pull the trailing integer issue id out of a stored identifier key."""
-    match = _TRAILING_INT_RE.search(key or "")
-    return int(match.group(1)) if match else None
 
 
 def build_stored_id_map(
@@ -53,7 +43,7 @@ def build_stored_id_map(
     priority = {source: i for i, source in enumerate(sources)}
     id_map: dict[int, dict[str, int]] = {}
     for pk, source_name, key in rows:
-        issue_id = _parse_issue_id(key)
+        issue_id = parse_issue_id(key)
         if issue_id is None:
             continue
         id_map.setdefault(pk, {})[source_name] = issue_id

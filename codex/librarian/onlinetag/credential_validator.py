@@ -12,12 +12,16 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
+from comicbox.formats.base.online import SOURCE_NAMES
+
 if TYPE_CHECKING:
     from collections.abc import Collection
 
     from comicbox.online_session import OnlineCredentials
 
-KNOWN_SOURCES: frozenset[str] = frozenset({"metron", "comicvine"})
+# comicbox owns the canonical online-tag source names (metron, comicvine); derive
+# from it so codex tracks a new source instead of hand-syncing a literal.
+KNOWN_SOURCES: frozenset[str] = frozenset(SOURCE_NAMES)
 
 _COMICVINE_TIMEOUT_SECS: float = 10.0
 

@@ -224,9 +224,10 @@ function callsForSource(source, mode) {
   return DEFAULT_CALLS_PER_COMIC;
 }
 
-// Only these sources support online id tagging (mirrors the backend
-// KNOWN_SOURCES); other identifiers a comic carries aren't offered.
-const TAGGABLE_SOURCES = Object.freeze(new Set(["metron", "comicvine"]));
+// Only these sources support online id tagging; derived from comicbox's
+// SOURCE_NAMES via the tagging choices so it tracks the backend. Other
+// identifiers a comic carries aren't offered.
+const TAGGABLE_SOURCES = Object.freeze(new Set(TAGGING_CHOICES.sources));
 // A comic's own issue identifier is stored with id_type "comic" — codex's
 // IdentifierType.ISSUE value is the table name, not "issue". Accept that (and
 // a bare "issue" defensively); skip non-issue types like publisher / series.
@@ -269,7 +270,7 @@ export default {
       // Search
       matchModeChoices: TAGGING_CHOICES.matchMode,
       promptsModeChoices: TAGGING_CHOICES.promptsMode,
-      sources: ["metron", "comicvine"],
+      sources: [...TAGGING_CHOICES.sources],
       matchMode: "auto",
       promptsMode: "ask",
       mergeAllSources: false,

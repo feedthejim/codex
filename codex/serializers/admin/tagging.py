@@ -1,5 +1,6 @@
 """Comicbox tagging serializers."""
 
+from comicbox.formats.base.online import SOURCE_NAMES
 from rest_framework.fields import SerializerMethodField
 from rest_framework.serializers import (
     BooleanField,
@@ -53,9 +54,7 @@ class OnlineTagStartSerializer(Serializer):
 
     collection = CharField()
     pks = ListField(child=CharField())
-    sources = ListField(
-        child=CharField(), required=False, default=["metron", "comicvine"]
-    )
+    sources = ListField(child=CharField(), required=False, default=list(SOURCE_NAMES))
     mode = CharField(required=False, default="auto")
     prompts_mode = CharField(required=False, default="ask")
     auto_threshold = CharField(required=False, default="0.85")

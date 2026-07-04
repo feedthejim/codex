@@ -3,6 +3,8 @@
 from dataclasses import dataclass
 from typing import Any
 
+from comicbox.formats.base.online import SOURCE_NAMES
+
 from codex.librarian.tasks import LibrarianTask
 
 
@@ -16,7 +18,7 @@ class BulkOnlineTagTask(OnlineTagTask):
 
     comic_pks: frozenset[int]
     session_id: str
-    sources: tuple[str, ...] = ("metron", "comicvine")
+    sources: tuple[str, ...] = SOURCE_NAMES
     mode: str = "auto"
     prompts_mode: str = "ask"
     auto_threshold: float = 0.85
