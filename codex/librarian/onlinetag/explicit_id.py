@@ -12,7 +12,6 @@ explicit-id fetch never reaches the matcher, so it never prompts.
 
 from __future__ import annotations
 
-import re
 from dataclasses import replace
 from typing import TYPE_CHECKING, Any
 
@@ -28,15 +27,13 @@ from comicbox.config.settings import (
 from comicbox.formats.comicbox.schema import IDENTIFIERS_KEY
 from comicbox.identifiers import ID_KEY_KEY
 
+from codex.librarian.onlinetag.issue_id import parse_issue_id
+
 if TYPE_CHECKING:
     from pathlib import Path
 
     from comicbox.config.settings import ComicboxSettings
     from comicbox.online_session import OnlineCredentials
-
-# Comic Vine keys may be stored long-form (``4000-67890``); the issue id is the
-# trailing integer. Metron keys are already bare integers.
-_TRAILING_INT_RE = re.compile(r"(\d+)$")
 
 
 def _build_auth_source(
@@ -105,11 +102,8 @@ def _result_has_requested_id(tags: dict[str, Any], source: str, issue_id: int) -
     a wrong id even on an already-tagged comic, whose stale id won't match.
     """
     id_obj = (tags.get(IDENTIFIERS_KEY) or {}).get(source) or {}
-    key = id_obj.get(ID_KEY_KEY)
-    if not key:
-        return False
-    match = _TRAILING_INT_RE.search(str(key))
-    return bool(match) and int(match.group(1)) == issue_id
+    parsed = parse_issue_id(id_obj.get(ID_KEY_KEY))
+    return parsed is not None and parsed == issue_id
 
 
 def fetch_tags_by_explicit_id(

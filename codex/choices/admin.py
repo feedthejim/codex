@@ -2,6 +2,7 @@
 
 from types import MappingProxyType
 
+from comicbox.formats.base.online import SOURCE_NAMES
 from django.db.models.enums import TextChoices
 
 
@@ -63,6 +64,9 @@ TAGGING_CHOICES = MappingProxyType(
                 "never": "Never",
             }
         ),
+        # Online-tag source names in priority order, derived from comicbox so
+        # the frontend's source list tracks comicbox instead of hardcoding it.
+        "sources": SOURCE_NAMES,
     }
 )
 

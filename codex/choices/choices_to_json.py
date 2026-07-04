@@ -20,6 +20,7 @@ from codex.choices.browser import (
 )
 from codex.choices.jobs import ADMIN_JOBS
 from codex.choices.notifications import WebsocketMessages
+from codex.choices.onlinetag import TAGGING_ESTIMATE
 from codex.choices.reader import READER_CHOICES, READER_DEFAULTS
 from codex.choices.search import SEARCH_FIELDS
 from codex.choices.statii import ADMIN_STATUS_TITLES
@@ -74,6 +75,7 @@ _MAP_DUMPS = MappingProxyType(
         "reader-defaults.json": READER_DEFAULTS,
         "reader-map.json": READER_CHOICES,
         "search-map.json": SEARCH_FIELDS,
+        "tagging-estimate.json": TAGGING_ESTIMATE,
     }
 )
 

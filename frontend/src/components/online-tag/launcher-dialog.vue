@@ -182,16 +182,20 @@ import { mapActions, mapState } from "pinia";
 
 import { HTTP } from "@/api/v4/base";
 import TAGGING_CHOICES from "@/choices/tagging-choices.json";
+import TAGGING_ESTIMATE from "@/choices/tagging-estimate.json";
 import { useAdminStore } from "@/stores/admin";
 import { useCommonStore } from "@/stores/common";
 import { useOnlineTagStore } from "@/stores/online-tag";
 
+// Base match-mode semantics, shown for any source. The per-comic request
+// count is Comic Vine-specific (Metron is a flat two-step regardless of mode),
+// so it's appended by matchModeHint only when Comic Vine is an active source.
 const MATCH_MODE_HINTS = {
   careful:
-    "Only accepts high-confidence matches. Defers ambiguous results for manual review. ~5 requests/comic.",
-  auto: "Balances accuracy and speed. Accepts good matches automatically, defers uncertain ones. ~3 requests/comic.",
+    "Only accepts high-confidence, unambiguous matches. Defers anything uncertain for manual review.",
+  auto: "Balances accuracy and speed. Accepts confident matches automatically and defers uncertain ones.",
   eager:
-    "Accepts the best available match with minimal verification. Fastest but least precise. ~2 requests/comic.",
+    "Accepts the best available match with minimal verification. Fastest, but least precise.",
 };
 const PROMPTS_MODE_HINTS = {
   ask: "Pauses on ambiguous matches and asks you to choose the correct result.",
@@ -199,34 +203,32 @@ const PROMPTS_MODE_HINTS = {
     "Skips all ambiguous matches without prompting. Unmatched comics are left unchanged.",
 };
 
-const SOURCE_RATES = {
-  metron: { perMinute: 20, perHour: 1200, label: "Metron Cloud" },
-  comicvine: { perMinute: 3, perHour: 200, label: "Comic Vine" },
-};
-
-// API calls per comic, per source. Keep in sync with
-// codex/librarian/onlinetag/estimate.py. Metron (comicbox 4.0.5+) is a flat
-// two-step search (series_list + issues_list) that match mode doesn't change;
-// Comic Vine's count scales with match mode.
-const METRON_CALLS_PER_COMIC = 2;
-const COMICVINE_CALLS_BY_MODE = {
-  eager: 2,
-  auto: 3,
-  careful: 5,
-};
-const DEFAULT_CALLS_PER_COMIC = 3;
+// Display names are UI copy; the per-source rates and per-comic request model
+// derive from comicbox via tagging-estimate.json (build-choices), so the client
+// estimate tracks the backend instead of hand-syncing constants.
+const SOURCE_LABELS = { metron: "Metron Cloud", comicvine: "Comic Vine" };
+const SOURCE_RATES = Object.fromEntries(
+  Object.entries(TAGGING_ESTIMATE.sourceRates).map(([source, rate]) => [
+    source,
+    { ...rate, label: SOURCE_LABELS[source] || source },
+  ]),
+);
 
 function callsForSource(source, mode) {
-  if (source === "metron") return METRON_CALLS_PER_COMIC;
+  if (source === "metron") return TAGGING_ESTIMATE.metronRequestsPerComic;
   if (source === "comicvine") {
-    return COMICVINE_CALLS_BY_MODE[mode] || DEFAULT_CALLS_PER_COMIC;
+    return (
+      TAGGING_ESTIMATE.comicvineRequestsByMode[mode] ||
+      TAGGING_ESTIMATE.defaultRequestsPerComic
+    );
   }
-  return DEFAULT_CALLS_PER_COMIC;
+  return TAGGING_ESTIMATE.defaultRequestsPerComic;
 }
 
-// Only these sources support online id tagging (mirrors the backend
-// KNOWN_SOURCES); other identifiers a comic carries aren't offered.
-const TAGGABLE_SOURCES = Object.freeze(new Set(["metron", "comicvine"]));
+// Only these sources support online id tagging; derived from comicbox's
+// SOURCE_NAMES via the tagging choices so it tracks the backend. Other
+// identifiers a comic carries aren't offered.
+const TAGGABLE_SOURCES = Object.freeze(new Set(TAGGING_CHOICES.sources));
 // A comic's own issue identifier is stored with id_type "comic" — codex's
 // IdentifierType.ISSUE value is the table name, not "issue". Accept that (and
 // a bare "issue" defensively); skip non-issue types like publisher / series.
@@ -269,7 +271,7 @@ export default {
       // Search
       matchModeChoices: TAGGING_CHOICES.matchMode,
       promptsModeChoices: TAGGING_CHOICES.promptsMode,
-      sources: ["metron", "comicvine"],
+      sources: [...TAGGING_CHOICES.sources],
       matchMode: "auto",
       promptsMode: "ask",
       mergeAllSources: false,
@@ -410,7 +412,16 @@ export default {
     },
     // --- search hints / estimates ---------------------------------------
     matchModeHint() {
-      return MATCH_MODE_HINTS[this.matchMode] || "";
+      const base = MATCH_MODE_HINTS[this.matchMode] || "";
+      // The request-count tail only applies to Comic Vine, whose calls scale
+      // with match mode; Metron's flat two-step doesn't, so skip it otherwise.
+      if (!this.activeSources.includes("comicvine")) {
+        return base;
+      }
+      const requests = TAGGING_ESTIMATE.comicvineRequestsByMode[this.matchMode];
+      return requests
+        ? `${base} ~${requests} Comic Vine requests/comic.`
+        : base;
     },
     promptsModeHint() {
       return PROMPTS_MODE_HINTS[this.promptsMode] || "";

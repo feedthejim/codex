@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import shutil
 from logging import getLogger
 from pathlib import Path
@@ -83,6 +84,12 @@ class TestRegistryExtensibility:
             assert is_ignored_basename("#recycle") is True
             assert is_ignored_basename(".DS_Store") is False
 
+    def test_os_metadata_basenames_registered_by_default(self) -> None:
+        # NAS / OS junk trees are ignored out of the box so they are
+        # neither imported nor descended into (issue #795).
+        for name in ("@eaDir", "#recycle", "__MACOSX", "Thumbs.db", "desktop.ini"):
+            assert is_ignored_basename(name) is True
+
 
 class TestDiskSnapshotSkipsDotfiles:
     """The poller's walker must not surface dotfile paths."""
@@ -121,6 +128,57 @@ class TestDiskSnapshotSkipsDotfiles:
         snap = DiskSnapshot(str(_TEST_LIB_ROOT), getLogger("test"))
         names = {Path(p).name for p in snap.paths}
         assert ".codex-cover.jpg" not in names
+
+    def test_recycle_bin_directory_pruned(self) -> None:
+        # Synology recycle bins are registered noise: the walker must
+        # never descend into them, so their permission-restricted
+        # contents are never scanned (issue #795).
+        (_TEST_LIB_ROOT / "comic.cbz").touch()
+        recycle = _TEST_LIB_ROOT / "#recycle"
+        recycle.mkdir()
+        (recycle / "deleted.cbz").touch()
+        snap = DiskSnapshot(str(_TEST_LIB_ROOT), getLogger("test"))
+        assert not any("#recycle" in Path(p).parts for p in snap.paths)
+
+
+class TestDiskSnapshotSurvivesUnreadableDir:
+    """A single permission-denied directory must not abort the whole walk."""
+
+    @pytest.fixture(autouse=True)
+    def _tmp_library(self):
+        shutil.rmtree(_TEST_LIB_ROOT, ignore_errors=True)
+        _TEST_LIB_ROOT.mkdir(parents=True)
+        yield
+        shutil.rmtree(_TEST_LIB_ROOT, ignore_errors=True)
+
+    def test_unreadable_subdir_skipped_siblings_survive(self) -> None:
+        # Reproduces issue #795: a subdirectory that raises
+        # PermissionError on scandir (e.g. a NAS recycle bin) used to
+        # crash the poller thread and abort the entire scan. It must now
+        # be skipped while every other folder still gets walked. Mock
+        # scandir so the test holds regardless of the runner's uid
+        # (CI runs as root, where a 0o000 dir stays readable).
+        (_TEST_LIB_ROOT / "comic.cbz").touch()
+        locked = _TEST_LIB_ROOT / "locked"
+        locked.mkdir()
+        (locked / "hidden.cbz").touch()
+
+        real_scandir = os.scandir
+
+        def fake_scandir(path):
+            if Path(path) == locked:
+                raise PermissionError(13, "Permission denied")
+            return real_scandir(path)
+
+        with patch.object(os, "scandir", side_effect=fake_scandir):
+            snap = DiskSnapshot(str(_TEST_LIB_ROOT), getLogger("test"))
+
+        names = {Path(p).name for p in snap.paths}
+        # The sibling comic is still surfaced despite the locked dir.
+        assert "comic.cbz" in names
+        # The locked directory stat'd fine so its own entry is recorded,
+        # but its unreadable contents are not.
+        assert "hidden.cbz" not in names
 
 
 class TestCodexWatchFilter:
