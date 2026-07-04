@@ -392,6 +392,31 @@ describe("OnlineTagLauncherDialog", () => {
       expect(wrapper.vm.totalCalls).toBe(50);
     });
   });
+
+  describe("match mode hint", () => {
+    test("appends the Comic Vine request count when Comic Vine is active", async () => {
+      const { wrapper } = mountDialog();
+
+      wrapper.vm.sources = ["metron", "comicvine"];
+      wrapper.vm.matchMode = "auto";
+      await wrapper.vm.$nextTick();
+
+      expect(wrapper.vm.matchModeHint).toContain(
+        "~3 Comic Vine requests/comic.",
+      );
+    });
+
+    test("omits the request-count tail on a Metron-only run", async () => {
+      const { wrapper } = mountDialog();
+
+      wrapper.vm.sources = ["metron"];
+      wrapper.vm.matchMode = "careful";
+      await wrapper.vm.$nextTick();
+
+      expect(wrapper.vm.matchModeHint).toContain("high-confidence");
+      expect(wrapper.vm.matchModeHint).not.toContain("requests/comic");
+    });
+  });
 });
 
 export default {};

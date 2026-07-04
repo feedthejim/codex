@@ -186,12 +186,15 @@ import { useAdminStore } from "@/stores/admin";
 import { useCommonStore } from "@/stores/common";
 import { useOnlineTagStore } from "@/stores/online-tag";
 
+// Base match-mode semantics, shown for any source. The per-comic request
+// count is Comic Vine-specific (Metron is a flat two-step regardless of mode),
+// so it's appended by matchModeHint only when Comic Vine is an active source.
 const MATCH_MODE_HINTS = {
   careful:
-    "Only accepts high-confidence matches. Defers ambiguous results for manual review. ~5 requests/comic.",
-  auto: "Balances accuracy and speed. Accepts good matches automatically, defers uncertain ones. ~3 requests/comic.",
+    "Only accepts high-confidence, unambiguous matches. Defers anything uncertain for manual review.",
+  auto: "Balances accuracy and speed. Accepts confident matches automatically and defers uncertain ones.",
   eager:
-    "Accepts the best available match with minimal verification. Fastest but least precise. ~2 requests/comic.",
+    "Accepts the best available match with minimal verification. Fastest, but least precise.",
 };
 const PROMPTS_MODE_HINTS = {
   ask: "Pauses on ambiguous matches and asks you to choose the correct result.",
@@ -411,7 +414,16 @@ export default {
     },
     // --- search hints / estimates ---------------------------------------
     matchModeHint() {
-      return MATCH_MODE_HINTS[this.matchMode] || "";
+      const base = MATCH_MODE_HINTS[this.matchMode] || "";
+      // The request-count tail only applies to Comic Vine, whose calls scale
+      // with match mode; Metron's flat two-step doesn't, so skip it otherwise.
+      if (!this.activeSources.includes("comicvine")) {
+        return base;
+      }
+      const requests = COMICVINE_CALLS_BY_MODE[this.matchMode];
+      return requests
+        ? `${base} ~${requests} Comic Vine requests/comic.`
+        : base;
     },
     promptsModeHint() {
       return PROMPTS_MODE_HINTS[this.promptsMode] || "";
