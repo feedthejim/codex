@@ -9,8 +9,7 @@ border-radius: 128px;
 ## v2.1.2
 
 - Fixes
-    - A folder with denied permissions no longer crashes the whole library
-      scan.
+    - A folder with denied permissions no longer crashes the whole library scan.
     - Ignore NAS and OS junk folders, including Synology recycle bins and macOS
       and Windows metadata.
 
