@@ -170,7 +170,7 @@ class TestDiskSnapshotSurvivesUnreadableDir:
                 raise PermissionError(13, "Permission denied")
             return real_scandir(path)
 
-        with patch.object(snapshot_mod.os, "scandir", side_effect=fake_scandir):
+        with patch.object(os, "scandir", side_effect=fake_scandir):
             snap = DiskSnapshot(str(_TEST_LIB_ROOT), getLogger("test"))
 
         names = {Path(p).name for p in snap.paths}
