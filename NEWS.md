@@ -10,8 +10,6 @@ border-radius: 128px;
 
 - Fixes
     - Fix unable to change password.
-    - Online tagging time and request estimates now reflect Metron's fewer
-      requests.
 
 - Performance
     - Metron online tagging makes far fewer API requests (comicbox 4.0.5).
