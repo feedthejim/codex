@@ -14,7 +14,6 @@ from watchfiles import Change
 
 from codex.librarian.fs import filters as filters_mod
 from codex.librarian.fs.filters import is_ignored_basename, is_ignored_path
-from codex.librarian.fs.poller import snapshot as snapshot_mod
 from codex.librarian.fs.poller.snapshot import DiskSnapshot
 from codex.librarian.fs.watcher.data import ChangeBatch
 from codex.librarian.fs.watcher.dirs import expand_dir_added
