@@ -418,7 +418,7 @@ export default {
       if (!this.activeSources.includes("comicvine")) {
         return base;
       }
-      const requests = COMICVINE_CALLS_BY_MODE[this.matchMode];
+      const requests = TAGGING_ESTIMATE.comicvineRequestsByMode[this.matchMode];
       return requests
         ? `${base} ~${requests} Comic Vine requests/comic.`
         : base;
