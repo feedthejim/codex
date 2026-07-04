@@ -11,11 +11,14 @@ from loguru import logger
 # the watchfiles filter. Either constant can be extended to add new
 # patterns without touching the walker/filter call sites:
 #
-#   _IGNORED_BASENAMES — exact-match basenames (case-sensitive). Use
-#     this for OS / archive metadata trees that don't follow a prefix
-#     convention. Examples for future extension: ``"@eaDir"``
-#     (Synology), ``"__MACOSX"`` (Mac archive metadata), ``"Thumbs.db"``
-#     / ``"desktop.ini"`` (Windows), ``"#recycle"`` (recycle bins).
+#   _IGNORED_BASENAMES — exact-match basenames (case-sensitive) for
+#     OS / archive metadata trees that don't follow a prefix
+#     convention: ``@eaDir`` (Synology thumbnails), ``#recycle``
+#     (Synology recycle bin), ``__MACOSX`` (Mac archive metadata),
+#     ``Thumbs.db`` / ``desktop.ini`` (Windows). Add more here as
+#     needed. Skipping these keeps NAS/OS junk out of the library and
+#     stops the walker from descending into permission-restricted
+#     trees like the recycle bin (issue #795).
 #
 #   _IGNORED_BASENAME_PREFIXES — prefix matches. Currently catches all
 #     hidden files / directories ("." prefix) so VCS metadata (.git),
@@ -25,7 +28,15 @@ from loguru import logger
 # A path is ignored when *any* component (relative to its library
 # root) matches either rule. The check is applied to every entry the
 # walker sees and every event the watcher receives.
-_IGNORED_BASENAMES: frozenset[str] = frozenset()
+_IGNORED_BASENAMES: frozenset[str] = frozenset(
+    {
+        "@eaDir",  # Synology thumbnail / extended-attribute store
+        "#recycle",  # Synology recycle bin
+        "__MACOSX",  # macOS archive metadata
+        "Thumbs.db",  # Windows thumbnail cache
+        "desktop.ini",  # Windows folder settings
+    }
+)
 _IGNORED_BASENAME_PREFIXES: tuple[str, ...] = (".",)
 
 

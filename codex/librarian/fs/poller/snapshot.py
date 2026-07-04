@@ -138,25 +138,40 @@ class DiskSnapshot(Snapshot):
 
     def _walk(self, root: str) -> None:
         """Walk the directory tree and populate lookups."""
-        for entry in os.scandir(root):
-            # Walking only the surviving children means the recursion
-            # never enters an ignored dir (``.git`` / ``.Trashes`` /
-            # ``@eaDir`` if registered / …), so a per-component check
-            # at each scandir level suffices — no need to re-check
-            # ancestors. See ``filters._IGNORED_BASENAMES`` /
-            # ``_IGNORED_BASENAME_PREFIXES`` for the registered rules.
-            if is_ignored_basename(entry.name):
-                continue
-            is_dir = entry.is_dir(follow_symlinks=self._follow_symlinks)
-            if not self._should_include(Path(entry.path), is_dir=is_dir):
-                continue
-            try:
-                st = entry.stat(follow_symlinks=self._follow_symlinks)
-            except OSError:
-                continue
-            self._set_lookups(entry.path, st)
-            if is_dir:
-                self._walk(entry.path)
+        try:
+            scandir = os.scandir(root)
+        except OSError as exc:
+            # A single unreadable directory (permission denied, or one
+            # that vanished mid-scan) must not abort the whole library
+            # poll — otherwise one locked folder crashes the poller
+            # thread and no other folder gets scanned (issue #795).
+            # Skip it and keep walking the rest of the tree, matching
+            # the ``os.walk`` default-onerror behavior the watcher relies
+            # on.
+            self.log.warning(f"Skipping unreadable directory {root}: {exc}")
+            return
+        with scandir:
+            for entry in scandir:
+                # Walking only the surviving children means the recursion
+                # never enters an ignored dir (``.git`` / ``.Trashes`` /
+                # ``@eaDir`` / ``#recycle`` / …), so a per-component check
+                # at each scandir level suffices — no need to re-check
+                # ancestors. See ``filters._IGNORED_BASENAMES`` /
+                # ``_IGNORED_BASENAME_PREFIXES`` for the registered rules.
+                if is_ignored_basename(entry.name):
+                    continue
+                try:
+                    is_dir = entry.is_dir(follow_symlinks=self._follow_symlinks)
+                    if not self._should_include(Path(entry.path), is_dir=is_dir):
+                        continue
+                    st = entry.stat(follow_symlinks=self._follow_symlinks)
+                except OSError:
+                    # An entry that can't be stat'd (broken symlink,
+                    # permission denied, race) is skipped, not fatal.
+                    continue
+                self._set_lookups(entry.path, st)
+                if is_dir:
+                    self._walk(entry.path)
 
 
 class DatabaseSnapshot(Snapshot):
