@@ -182,6 +182,7 @@ import { mapActions, mapState } from "pinia";
 
 import { HTTP } from "@/api/v4/base";
 import TAGGING_CHOICES from "@/choices/tagging-choices.json";
+import TAGGING_ESTIMATE from "@/choices/tagging-estimate.json";
 import { useAdminStore } from "@/stores/admin";
 import { useCommonStore } from "@/stores/common";
 import { useOnlineTagStore } from "@/stores/online-tag";
@@ -202,29 +203,26 @@ const PROMPTS_MODE_HINTS = {
     "Skips all ambiguous matches without prompting. Unmatched comics are left unchanged.",
 };
 
-const SOURCE_RATES = {
-  metron: { perMinute: 20, perHour: 1200, label: "Metron Cloud" },
-  comicvine: { perMinute: 3, perHour: 200, label: "Comic Vine" },
-};
-
-// API calls per comic, per source. Keep in sync with
-// codex/librarian/onlinetag/estimate.py. Metron (comicbox 4.0.5+) is a flat
-// two-step search (series_list + issues_list) that match mode doesn't change;
-// Comic Vine's count scales with match mode.
-const METRON_CALLS_PER_COMIC = 2;
-const COMICVINE_CALLS_BY_MODE = {
-  eager: 2,
-  auto: 3,
-  careful: 5,
-};
-const DEFAULT_CALLS_PER_COMIC = 3;
+// Display names are UI copy; the per-source rates and per-comic request model
+// derive from comicbox via tagging-estimate.json (build-choices), so the client
+// estimate tracks the backend instead of hand-syncing constants.
+const SOURCE_LABELS = { metron: "Metron Cloud", comicvine: "Comic Vine" };
+const SOURCE_RATES = Object.fromEntries(
+  Object.entries(TAGGING_ESTIMATE.sourceRates).map(([source, rate]) => [
+    source,
+    { ...rate, label: SOURCE_LABELS[source] || source },
+  ]),
+);
 
 function callsForSource(source, mode) {
-  if (source === "metron") return METRON_CALLS_PER_COMIC;
+  if (source === "metron") return TAGGING_ESTIMATE.metronRequestsPerComic;
   if (source === "comicvine") {
-    return COMICVINE_CALLS_BY_MODE[mode] || DEFAULT_CALLS_PER_COMIC;
+    return (
+      TAGGING_ESTIMATE.comicvineRequestsByMode[mode] ||
+      TAGGING_ESTIMATE.defaultRequestsPerComic
+    );
   }
-  return DEFAULT_CALLS_PER_COMIC;
+  return TAGGING_ESTIMATE.defaultRequestsPerComic;
 }
 
 // Only these sources support online id tagging; derived from comicbox's
