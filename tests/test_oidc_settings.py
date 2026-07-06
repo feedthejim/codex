@@ -29,7 +29,7 @@ class TestOIDCConfigPlumbing:
         config = _load(
             tmp_path,
             "[auth.oidc]\n"
-            'enabled = true\n'
+            "enabled = true\n"
             'provider_name = "Authentik"\n'
             'server_url = "https://auth.example.com/application/o/codex/"\n'
             'client_id = "codex"\n'

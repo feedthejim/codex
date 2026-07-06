@@ -173,7 +173,9 @@ AUTH_FAILED_LOGIN_LOG_TRUST_FORWARDED_FOR = get_bool(
 
 # Native OIDC (SSO) client. TOML/env only, like remote_user above.
 _AUTH_OIDC_ENABLED_CONFIG = get_bool(CODEX_CONFIG, "auth.oidc.enabled", default=False)
-AUTH_OIDC_PROVIDER_NAME = get_str(CODEX_CONFIG, "auth.oidc.provider_name", default="SSO")
+AUTH_OIDC_PROVIDER_NAME = get_str(
+    CODEX_CONFIG, "auth.oidc.provider_name", default="SSO"
+)
 AUTH_OIDC_SERVER_URL = get_str(CODEX_CONFIG, "auth.oidc.server_url", default="")
 AUTH_OIDC_CLIENT_ID = get_str(CODEX_CONFIG, "auth.oidc.client_id", default="")
 AUTH_OIDC_CLIENT_SECRET = get_str(CODEX_CONFIG, "auth.oidc.client_secret", default="")
@@ -195,7 +197,9 @@ AUTH_OIDC_LINK_BY_EMAIL = get_bool(
     CODEX_CONFIG, "auth.oidc.link_by_email", default=False
 )
 AUTH_OIDC_SYNC_GROUPS = get_bool(CODEX_CONFIG, "auth.oidc.sync_groups", default=False)
-AUTH_OIDC_GROUPS_CLAIM = get_str(CODEX_CONFIG, "auth.oidc.groups_claim", default="groups")
+AUTH_OIDC_GROUPS_CLAIM = get_str(
+    CODEX_CONFIG, "auth.oidc.groups_claim", default="groups"
+)
 AUTH_OIDC_ADMIN_GROUP = get_str(CODEX_CONFIG, "auth.oidc.admin_group", default="")
 AUTH_OIDC_RP_INITIATED_LOGOUT = get_bool(
     CODEX_CONFIG, "auth.oidc.rp_initiated_logout", default=False

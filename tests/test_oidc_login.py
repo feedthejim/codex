@@ -29,6 +29,7 @@ from codex.settings import GRANIAN_URL_PATH_PREFIX
 # proves the error redirects are prefix-qualified.
 _SSO_ERROR: Final = f"{GRANIAN_URL_PATH_PREFIX}/auth/sso-error"
 _SUB: Final = "sub-1234"
+_HTTP_OK: Final = 200
 _HTTP_NOT_FOUND: Final = 404
 _HTTP_FOUND: Final = 302
 # A configured provider app, as in a production deployment with OIDC on.
@@ -64,7 +65,8 @@ def _sociallogin(id_token=None, userinfo=None, sub=_SUB) -> SocialLogin:
     sociallogin = SocialLogin(user=User(), account=account)
     data = merged_claims(sociallogin)
     adapter = CodexSocialAccountAdapter()
-    adapter.populate_user(None, sociallogin, {"email": data.get("email")})
+    request = RequestFactory().get("/sso/oidc/login/callback/")
+    adapter.populate_user(request, sociallogin, {"email": data.get("email")})
     return sociallogin
 
 
@@ -81,7 +83,11 @@ def _request(rf: RequestFactory):
 def _complete_social_login(request, sociallogin: SocialLogin):
     """Run the real login/signup flow inside allauth's request context."""
     with context.request_context(request):
-        return complete_social_login(request, sociallogin)
+        response = complete_social_login(request, sociallogin)
+    # Every Codex path ends in a redirect; narrows the Optional for
+    # the type checkers as a bonus.
+    assert response is not None
+    return response
 
 
 class OIDCDisabledTests(TestCase):
@@ -388,6 +394,21 @@ class OIDCUsernameLockTests(TestCase):
         assert self._username_read_only(user) is False
 
 
+class OIDCSchemaTests(TestCase):
+    """allauth's plain Django views must not leak into the API schema."""
+
+    def test_allauth_views_absent_from_schema(self) -> None:
+        admin = User.objects.create_superuser("admin", "", "admin")
+        self.client.force_login(admin)
+        response = self.client.get("/api/v4/schema")
+        assert response.status_code == _HTTP_OK
+        paths = response.data["paths"]  # pyright: ignore[reportAttributeAccessIssue], # ty: ignore[unresolved-attribute]
+        sso_paths = [path for path in paths if "/sso/" in path]
+        assert sso_paths == []
+        # The DRF init endpoint is a documented part of the API.
+        assert any(path.endswith("/auth/oidc/login") for path in paths)
+
+
 class OIDCErrorTests(TestCase):
     """Authentication errors land on the SPA error page, never a template."""
 
@@ -408,9 +429,7 @@ class OIDCErrorTests(TestCase):
 
     def test_unknown_error_collapses_to_server_error(self) -> None:
         """Never reflect arbitrary provider input into the redirect."""
-        assert self._error_location("<script>") == (
-            f"{_SSO_ERROR}?error=server_error"
-        )
+        assert self._error_location("<script>") == (f"{_SSO_ERROR}?error=server_error")
 
     def test_no_error_defaults_to_server_error(self) -> None:
         assert self._error_location(None) == f"{_SSO_ERROR}?error=server_error"

@@ -80,10 +80,7 @@ _WELL_KNOWN = "/.well-known/openid-configuration"
 def user_is_oidc_managed(user) -> bool:
     """Return whether the user's identity is owned by the identity provider."""
     return bool(
-        user
-        and user.pk
-        and user.is_authenticated
-        and user.socialaccount_set.exists()
+        user and user.pk and user.is_authenticated and user.socialaccount_set.exists()
     )
 
 
@@ -273,9 +270,7 @@ class CodexSocialAccountAdapter(DefaultSocialAccountAdapter):
     def _email_conflict(claims: dict) -> bool:
         """Return whether creating this user collides with an existing email."""
         email = claims.get("email")
-        return bool(
-            email and User.objects.filter(email__iexact=str(email)).exists()
-        )
+        return bool(email and User.objects.filter(email__iexact=str(email)).exists())
 
     @staticmethod
     def _sync_user(user, claims: dict) -> None:
@@ -323,7 +318,5 @@ class OIDCLoginRedirectView(APIView):
         del request
         if not AUTH_OIDC_ENABLED:
             raise Http404
-        url = reverse(
-            "openid_connect_login", kwargs={"provider_id": _OIDC_PROVIDER_ID}
-        )
+        url = reverse("openid_connect_login", kwargs={"provider_id": _OIDC_PROVIDER_ID})
         return HttpResponseRedirect(url)
