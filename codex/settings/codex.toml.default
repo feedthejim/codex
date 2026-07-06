@@ -123,6 +123,51 @@
 # Disable if Codex is exposed directly (otherwise clients can forge their IP).
 # failed_login_log_trust_forwarded_for = true
 
+# [auth.oidc]
+# Native OIDC (SSO) login. Codex acts as an OIDC client against an
+# identity provider like Authentik or Authelia and shows a
+# "Login with <provider_name>" button. Requires enabled, server_url,
+# and client_id to all be set; otherwise OIDC stays off.
+# WARNING: OIDC logins auto-link to existing local users by username,
+# including superusers. Only point Codex at an identity provider whose
+# username namespace you control, and change the default admin password.
+# enabled = false
+# Button label in the web UI.
+# provider_name = "SSO"
+# Issuer URL. Discovery document is fetched from
+# <server_url>/.well-known/openid-configuration at login time.
+# server_url = ""
+# client_id = ""
+# Empty for public clients. Keep this file readable only by the codex user.
+# client_secret = ""
+# Space separated. Authelia group sync needs "openid profile email groups".
+# scope = "openid profile email"
+# PKCE (S256). Both Authentik and Authelia support it; leave on.
+# pkce = true
+# Token endpoint auth method. Empty uses the allauth default
+# (client_secret_basic). Alternatives: "client_secret_post", "none".
+# token_auth_method = ""
+# Fetch claims from the userinfo endpoint. Required for Authelia, which
+# puts preferred_username/email/groups only in userinfo.
+# fetch_userinfo = true
+# Claim used for the Codex username. Falls back to email, then sub.
+# username_claim = "preferred_username"
+# Auto-provision a Codex user on first OIDC login.
+# create_users = true
+# Also link to an existing local user by matching email address.
+# Off by default: only enable if the identity provider verifies emails.
+# link_by_email = false
+# Set the user's Django groups from the identity provider's groups claim
+# on every login. Only matches EXISTING Codex groups; never creates them.
+# sync_groups = false
+# groups_claim = "groups"
+# Members of this identity-provider group become Codex staff/superusers.
+# Empty disables admin mapping.
+# admin_group = ""
+# On logout, also end the identity-provider session (OIDC RP-initiated
+# logout). Supported by Authentik; not implemented by Authelia.
+# rp_initiated_logout = false
+
 # [custom_covers]
 # Maximum size (in megabytes) of a custom-cover upload. This setting
 # is also exposed in the Admin UI under "Custom Covers"; the DB value

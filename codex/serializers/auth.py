@@ -9,8 +9,23 @@ from rest_framework.fields import BooleanField, CharField, EmailField, IntegerFi
 from rest_framework.serializers import Serializer
 from rest_registration.api.serializers import DefaultUserProfileSerializer
 
+from codex.oidc import user_is_oidc_managed
 from codex.serializers.fields.auth import TimezoneField
 from codex.serializers.versions import VersionsSerializer
+
+
+def _username_locked(serializer: Serializer) -> bool:
+    """
+    Return whether an external identity manages the request user's username.
+
+    Global when ``AUTH_REMOTE_USER`` owns identity; per-user when the
+    account is linked to an OIDC identity provider. Renaming in either
+    case would desync the user from the IdP and lock them out.
+    """
+    if settings.AUTH_REMOTE_USER:
+        return True
+    request = serializer.context.get("request") if serializer.context else None
+    return user_is_oidc_managed(getattr(request, "user", None))
 
 
 class CodexProfileSerializer(DefaultUserProfileSerializer):
@@ -33,7 +48,7 @@ class CodexProfileSerializer(DefaultUserProfileSerializer):
 
     @override
     def get_fields(self):
-        """Make email writable; lock username under remote-user auth."""
+        """Make email writable; lock username under external identity."""
         fields = super().get_fields()
         email = fields.get("email")
         if email is not None:
@@ -46,7 +61,7 @@ class CodexProfileSerializer(DefaultUserProfileSerializer):
             # walking the parent ``Field`` type and complaining.
             if hasattr(email, "allow_blank"):
                 setattr(email, "allow_blank", True)  # noqa: B010
-        if settings.AUTH_REMOTE_USER and "username" in fields:
+        if "username" in fields and _username_locked(self):
             fields["username"].read_only = True
         return fields
 
@@ -68,6 +83,10 @@ class AdminFlagsSerializer(Serializer):
     register_verification = BooleanField(read_only=True)
     email_enabled = BooleanField(read_only=True)
     remote_user_enabled = BooleanField(read_only=True)
+    oidc_enabled = BooleanField(read_only=True)
+    oidc_provider_name = CharField(read_only=True, allow_blank=True)
+    oidc_login_url = CharField(read_only=True, allow_blank=True)
+    oidc_logout_url = CharField(read_only=True, allow_blank=True)
 
 
 class UserSerializer(Serializer):
@@ -102,9 +121,10 @@ class ProfileUpdateSerializer(Serializer):
     """
     Writable subset of the user profile.
 
-    ``username`` is read-only when ``AUTH_REMOTE_USER`` owns identity.
-    Empty strings on ``email`` mean "clear it"; the
-    rest-registration-backed profile view accepts that semantics.
+    ``username`` is read-only when an external identity (remote-user
+    proxy or a linked OIDC provider) owns it. Empty strings on ``email``
+    mean "clear it"; the rest-registration-backed profile view accepts
+    that semantics.
     """
 
     username = CharField(required=False, allow_blank=False)
@@ -113,9 +133,9 @@ class ProfileUpdateSerializer(Serializer):
 
     @override
     def get_fields(self):
-        """Lock username under remote-user auth (matches v3 profile semantics)."""
+        """Lock username under external identity (matches v3 profile semantics)."""
         fields = super().get_fields()
-        if settings.AUTH_REMOTE_USER and "username" in fields:
+        if "username" in fields and _username_locked(self):
             fields["username"].read_only = True
         return fields
 

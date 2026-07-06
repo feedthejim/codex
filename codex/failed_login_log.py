@@ -67,14 +67,28 @@ def not_failed_login_filter(record) -> bool:
     return not record["extra"].get(_FAILED_LOGIN_KEY)
 
 
+def log_failed_login(request: "HttpRequest | None", username: str = _MISSING) -> None:
+    """
+    Emit one failed-login record in the standard format.
+
+    Public helper for callers outside the ``user_login_failed`` signal
+    (e.g. OIDC callback failures in :mod:`codex.oidc`) so every failure
+    shares one line format for banning-tool regexes. When the failed-login
+    log is disabled the tagged record is dropped by the main sinks'
+    :func:`not_failed_login_filter` and no dedicated sink exists, so
+    calling this is always safe.
+    """
+    ip = get_client_ip(request)
+    _failed_login_logger.warning(f"Failed login from {ip} user={username or _MISSING}")
+
+
 def on_login_failed(sender, credentials=None, request=None, **_kwargs) -> None:
     """Receiver for ``django.contrib.auth.signals.user_login_failed``."""
     del sender
     if request is None:
         request = _current_request.get()
-    ip = get_client_ip(request)
     username = (credentials or {}).get("username") or _MISSING
-    _failed_login_logger.warning(f"Failed login from {ip} user={username}")
+    log_failed_login(request, username)
 
 
 class RequestContextMiddleware:

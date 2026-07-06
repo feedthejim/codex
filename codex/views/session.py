@@ -16,7 +16,9 @@ from rest_framework.response import Response
 
 from codex.choices.admin import AdminFlagChoices
 from codex.models import AdminFlag
+from codex.oidc import oidc_logout_url
 from codex.serializers.auth import SessionSerializer
+from codex.settings import GRANIAN_URL_PATH_PREFIX
 from codex.settings.db import email_enabled
 from codex.views.auth import AuthGenericAPIView, user_payload
 from codex.views.version import version_payload
@@ -56,8 +58,7 @@ class SessionView(AuthGenericAPIView):
     permission_classes = (AllowAny,)
     serializer_class = SessionSerializer
 
-    @staticmethod
-    def _admin_flags(*, authenticated: bool) -> dict:
+    def _admin_flags(self, *, authenticated: bool) -> dict:
         """
         Build the auth-relevant admin flags + settings-derived capabilities.
 
@@ -81,9 +82,21 @@ class SessionView(AuthGenericAPIView):
         # Public: the logged-out login dialog shows the reset-password
         # link when email is configured.
         flags["email_enabled"] = email_enabled()
+        # Public, unlike remote_user_enabled: the logged-out shell must
+        # render the "Login with <provider>" button.
+        flags["oidc_enabled"] = bool(settings.AUTH_OIDC_ENABLED)
+        if settings.AUTH_OIDC_ENABLED:
+            flags["oidc_provider_name"] = settings.AUTH_OIDC_PROVIDER_NAME
+            flags["oidc_login_url"] = (
+                f"{GRANIAN_URL_PATH_PREFIX}/api/v4/auth/oidc/login"
+            )
         # Private: only the authenticated profile dialog reads this.
         if authenticated:
             flags["remote_user_enabled"] = bool(settings.AUTH_REMOTE_USER)
+            # Computed while still authenticated because the frontend
+            # navigates here only after the local logout POST succeeds.
+            if logout_url := oidc_logout_url(self.request):
+                flags["oidc_logout_url"] = logout_url
         return flags
 
     @override

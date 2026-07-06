@@ -171,6 +171,46 @@ AUTH_FAILED_LOGIN_LOG_TRUST_FORWARDED_FOR = get_bool(
     default=True,
 )
 
+# Native OIDC (SSO) client. TOML/env only, like remote_user above.
+_AUTH_OIDC_ENABLED_CONFIG = get_bool(CODEX_CONFIG, "auth.oidc.enabled", default=False)
+AUTH_OIDC_PROVIDER_NAME = get_str(CODEX_CONFIG, "auth.oidc.provider_name", default="SSO")
+AUTH_OIDC_SERVER_URL = get_str(CODEX_CONFIG, "auth.oidc.server_url", default="")
+AUTH_OIDC_CLIENT_ID = get_str(CODEX_CONFIG, "auth.oidc.client_id", default="")
+AUTH_OIDC_CLIENT_SECRET = get_str(CODEX_CONFIG, "auth.oidc.client_secret", default="")
+AUTH_OIDC_SCOPE = get_str(
+    CODEX_CONFIG, "auth.oidc.scope", default="openid profile email"
+)
+AUTH_OIDC_PKCE = get_bool(CODEX_CONFIG, "auth.oidc.pkce", default=True)
+AUTH_OIDC_TOKEN_AUTH_METHOD = get_str(
+    CODEX_CONFIG, "auth.oidc.token_auth_method", default=""
+)
+AUTH_OIDC_FETCH_USERINFO = get_bool(
+    CODEX_CONFIG, "auth.oidc.fetch_userinfo", default=True
+)
+AUTH_OIDC_USERNAME_CLAIM = get_str(
+    CODEX_CONFIG, "auth.oidc.username_claim", default="preferred_username"
+)
+AUTH_OIDC_CREATE_USERS = get_bool(CODEX_CONFIG, "auth.oidc.create_users", default=True)
+AUTH_OIDC_LINK_BY_EMAIL = get_bool(
+    CODEX_CONFIG, "auth.oidc.link_by_email", default=False
+)
+AUTH_OIDC_SYNC_GROUPS = get_bool(CODEX_CONFIG, "auth.oidc.sync_groups", default=False)
+AUTH_OIDC_GROUPS_CLAIM = get_str(CODEX_CONFIG, "auth.oidc.groups_claim", default="groups")
+AUTH_OIDC_ADMIN_GROUP = get_str(CODEX_CONFIG, "auth.oidc.admin_group", default="")
+AUTH_OIDC_RP_INITIATED_LOGOUT = get_bool(
+    CODEX_CONFIG, "auth.oidc.rp_initiated_logout", default=False
+)
+# Lazy validation: no network at boot; allauth fetches the discovery
+# document at first login.
+AUTH_OIDC_ENABLED = _AUTH_OIDC_ENABLED_CONFIG and bool(
+    AUTH_OIDC_SERVER_URL and AUTH_OIDC_CLIENT_ID
+)
+if _AUTH_OIDC_ENABLED_CONFIG and not AUTH_OIDC_ENABLED:
+    logger.warning(
+        "auth.oidc.enabled is set but auth.oidc.server_url or"
+        " auth.oidc.client_id is missing. OIDC login stays disabled."
+    )
+
 ##############################
 # Codex Config: Browser      #
 ##############################
@@ -521,6 +561,12 @@ def _get_installed_apps(features: FeatureFlags) -> tuple[str, ...]:
         "rest_framework",
         "rest_framework.authtoken",
         "rest_registration",
+        # allauth apps are installed unconditionally (like rest_registration);
+        # OIDC behavior is gated at runtime on AUTH_OIDC_ENABLED.
+        "allauth",
+        "allauth.account",
+        "allauth.socialaccount",
+        "allauth.socialaccount.providers.openid_connect",
         "corsheaders",
     ]
     if features.django_vite:
@@ -566,6 +612,7 @@ def _get_middleware(features: FeatureFlags) -> tuple[str, ...]:
     if AUTH_FAILED_LOGIN_LOG:
         middleware.append("codex.failed_login_log.RequestContextMiddleware")
     middleware += [
+        "allauth.account.middleware.AccountMiddleware",
         "django.contrib.messages.middleware.MessageMiddleware",
         "django.middleware.clickjacking.XFrameOptionsMiddleware",
         "codex.middleware.CodexMiddleware",
@@ -698,11 +745,63 @@ DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 # Authentication #
 ##################
 
+AUTHENTICATION_BACKENDS = [
+    "django.contrib.auth.backends.ModelBackend",
+    # Authenticates completed OIDC logins (allauth). Inert unless a
+    # sociallogin flow runs, so safe to include unconditionally.
+    "allauth.account.auth_backends.AuthenticationBackend",
+]
 if AUTH_REMOTE_USER:
-    AUTHENTICATION_BACKENDS = [
-        "django.contrib.auth.backends.RemoteUserBackend",
-        "django.contrib.auth.backends.ModelBackend",
+    AUTHENTICATION_BACKENDS.insert(0, "django.contrib.auth.backends.RemoteUserBackend")
+
+# django-allauth: native OIDC (SSO) login. Apps and URLs are always
+# installed; behavior is gated on AUTH_OIDC_ENABLED (empty APPS list and
+# Http404 gates when disabled).
+SOCIALACCOUNT_ADAPTER = "codex.oidc.CodexSocialAccountAdapter"
+# The init endpoint is a plain GET navigation; state + PKCE provide the
+# anti-forgery binding.
+SOCIALACCOUNT_LOGIN_ON_GET = True
+SOCIALACCOUNT_AUTO_SIGNUP = True
+# Never gate logins on email_verified: Authentik defaults it to False.
+SOCIALACCOUNT_EMAIL_VERIFICATION = "none"
+ACCOUNT_EMAIL_VERIFICATION = "none"
+# No use for stored access/refresh tokens: Codex never calls the
+# identity provider on the user's behalf, and RP-initiated logout uses
+# the spec's client_id parameter instead of id_token_hint (allauth does
+# not retain the raw id_token JWT anyway).
+SOCIALACCOUNT_STORE_TOKENS = False
+_AUTH_OIDC_APP_SETTINGS = {
+    "server_url": AUTH_OIDC_SERVER_URL,
+    "oauth_pkce_enabled": AUTH_OIDC_PKCE,
+    "fetch_userinfo": AUTH_OIDC_FETCH_USERINFO,
+}
+if AUTH_OIDC_TOKEN_AUTH_METHOD:
+    _AUTH_OIDC_APP_SETTINGS["token_auth_method"] = AUTH_OIDC_TOKEN_AUTH_METHOD
+_AUTH_OIDC_APPS = (
+    [
+        {
+            "provider_id": "oidc",
+            "name": AUTH_OIDC_PROVIDER_NAME,
+            "client_id": AUTH_OIDC_CLIENT_ID,
+            "secret": AUTH_OIDC_CLIENT_SECRET,
+            "settings": _AUTH_OIDC_APP_SETTINGS,
+        }
     ]
+    if AUTH_OIDC_ENABLED
+    else []
+)
+SOCIALACCOUNT_PROVIDERS = {
+    "openid_connect": {
+        "APPS": _AUTH_OIDC_APPS,
+        "SCOPE": AUTH_OIDC_SCOPE.split(),
+    }
+}
+# allauth defaults this to "oidc", which would double up with the
+# provider_id path segment: /sso/oidc/oidc/login/. Codex mounts the
+# provider urls at "sso/" (urls/root.py), so /sso/oidc/login/.
+SOCIALACCOUNT_OPENID_CONNECT_URL_PREFIX = ""
+# Where the OIDC callback lands the user after login.
+LOGIN_REDIRECT_URL = GRANIAN_URL_PATH_PREFIX or "/"
 
 # https://docs.djangoproject.com/en/dev/ref/settings/#auth-password-validators
 AUTH_PASSWORD_VALIDATORS = [
@@ -819,6 +918,9 @@ _THROTTLE_RATES = {
     "reset_password": (
         f"{THROTTLE_RESET_PASSWORD}/hour" if THROTTLE_RESET_PASSWORD else None
     ),
+    # The OIDC init endpoint is an unauthenticated redirect; a modest
+    # per-IP cap keeps it from being used to spam the identity provider.
+    "oidc_login": "10/min",
 }
 
 _RENDERER_CLASSES = [
