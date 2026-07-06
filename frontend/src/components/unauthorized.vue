@@ -10,6 +10,7 @@
     >
       <div class="login">
         <AdminBrowserLink v-if="showAdminBrowserLink" />
+        <SsoLoginButton class="ssoButton" />
         <AuthMenu :show-extras="false" />
       </div>
     </EmptyState>
@@ -23,6 +24,7 @@ import { mapState } from "pinia";
 
 import AdminBrowserLink from "@/components/admin/browser-link.vue";
 import AuthMenu from "@/components/auth/auth-menu.vue";
+import SsoLoginButton from "@/components/auth/sso-login-button.vue";
 import AppBanner from "@/components/banner.vue";
 import EmptyState from "@/components/empty.vue";
 import PlaceholderLoading from "@/components/placeholder-loading.vue";
@@ -34,6 +36,7 @@ export default {
     AppBanner,
     AdminBrowserLink,
     AuthMenu,
+    SsoLoginButton,
     PlaceholderLoading,
     EmptyState,
   },
@@ -81,6 +84,10 @@ export default {
 
 .login {
   color: rgb(var(--v-theme-primary));
+}
+
+.ssoButton {
+  margin-bottom: 0.75em;
 }
 
 .login :deep(.v-list-item__prepend) {

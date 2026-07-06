@@ -13,6 +13,10 @@
       />
     </template>
     <v-form id="authDialog" ref="form" validate-on="submit">
+      <template v-if="adminFlags.oidcEnabled">
+        <SsoLoginButton />
+        <div class="ssoDivider">or</div>
+      </template>
       <v-text-field
         v-model="credentials.username"
         autocomplete="username"
@@ -101,6 +105,7 @@ import { mapActions, mapState, mapWritableState } from "pinia";
 
 import authFormMixin from "@/components/auth/auth-form-mixin";
 import ResetPasswordRequestDialog from "@/components/auth/reset-password-request-dialog.vue";
+import SsoLoginButton from "@/components/auth/sso-login-button.vue";
 import CodexListItem from "@/components/codex-list-item.vue";
 import SubmitFooter from "@/components/submit-footer.vue";
 import { useAuthStore } from "@/stores/auth";
@@ -111,6 +116,7 @@ export default {
     SubmitFooter,
     CodexListItem,
     ResetPasswordRequestDialog,
+    SsoLoginButton,
   },
   mixins: [authFormMixin],
   data() {
@@ -225,5 +231,12 @@ export default {
 <style scoped lang="scss">
 #authDialog {
   padding: 20px;
+}
+
+.ssoDivider {
+  text-align: center;
+  margin: 0.75em 0;
+  color: rgba(var(--v-theme-on-surface), 0.6);
+  font-size: 0.875em;
 }
 </style>
