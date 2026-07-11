@@ -1,0 +1,115 @@
+# Identity-provider stack for manually testing Codex SSO before release.
+#
+#   docker compose -f test-proxy/compose.yaml up -d
+#
+# Services (everything binds to 127.0.0.1 only):
+#   authentik  http://localhost:9010   OIDC identity provider
+#              admin UI login: akadmin / admin
+#              test users (from authentik/blueprints/codex-test.yaml):
+#                testuser  / insecure-test-password   groups: readers
+#                testadmin / insecure-test-password   groups: readers, codex-admins
+#              OIDC client for the Codex Auth tab:
+#                server url    http://localhost:9010/application/o/codex-test/
+#                client id     codex-test
+#                client secret insecure-codex-test-secret
+#   tinyauth   http://localhost:3232   forward-auth gateway (nginx auth_request)
+#              login: test / insecure-test-password
+#
+# Every credential in this file is intentionally public throwaway test data.
+# See test-proxy/README.md for the full manual test matrix.
+
+services:
+  postgresql:
+    image: docker.io/library/postgres:16-alpine
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -d authentik -U authentik"]
+      start_period: 20s
+      interval: 30s
+      retries: 5
+      timeout: 5s
+    environment:
+      POSTGRES_PASSWORD: insecure-test-pg-password
+      POSTGRES_USER: authentik
+      POSTGRES_DB: authentik
+    volumes:
+      - authentik_pg:/var/lib/postgresql/data
+
+  redis:
+    image: docker.io/library/redis:alpine
+    command: --save 60 1 --loglevel warning
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli ping | grep PONG"]
+      start_period: 20s
+      interval: 30s
+      retries: 5
+      timeout: 3s
+    volumes:
+      - authentik_redis:/data
+
+  authentik-server:
+    image: ghcr.io/goauthentik/server:2026.5
+    restart: unless-stopped
+    command: server
+    environment: &authentik_env
+      AUTHENTIK_SECRET_KEY: insecure-test-secret-key-for-local-harness-only
+      AUTHENTIK_ERROR_REPORTING__ENABLED: "false"
+      AUTHENTIK_DISABLE_UPDATE_CHECK: "true"
+      AUTHENTIK_DISABLE_STARTUP_ANALYTICS: "true"
+      AUTHENTIK_REDIS__HOST: redis
+      AUTHENTIK_POSTGRESQL__HOST: postgresql
+      AUTHENTIK_POSTGRESQL__USER: authentik
+      AUTHENTIK_POSTGRESQL__NAME: authentik
+      AUTHENTIK_POSTGRESQL__PASSWORD: insecure-test-pg-password
+      # Applied on first start only: makes akadmin usable immediately.
+      AUTHENTIK_BOOTSTRAP_PASSWORD: admin
+      AUTHENTIK_BOOTSTRAP_EMAIL: akadmin@example.com
+    ports:
+      - "127.0.0.1:9010:9000"
+    volumes:
+      - ./authentik/blueprints:/blueprints/custom:ro
+    depends_on:
+      postgresql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  authentik-worker:
+    image: ghcr.io/goauthentik/server:2026.5
+    restart: unless-stopped
+    command: worker
+    environment: *authentik_env
+    volumes:
+      - ./authentik/blueprints:/blueprints/custom:ro
+    depends_on:
+      postgresql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  tinyauth:
+    image: ghcr.io/steveiliop56/tinyauth:v5
+    restart: unless-stopped
+    environment:
+      TINYAUTH_APPURL: http://localhost:3232
+      # test / insecure-test-password (bcrypt). Compose interpolates $, so
+      # every $ in the hash is doubled. Regenerate with:
+      #   docker run -i -t --rm ghcr.io/steveiliop56/tinyauth:v5 \
+      #     user create --interactive
+      TINYAUTH_AUTH_USERS: "test:$$2a$$05$$3iNEElgG4O.dR2RbvTmEQONRN7Zl3DcMYnz1cf9esxnCdeTWB/b2u"
+      # The image runs as a non-root user with WORKDIR /tinyauth (root-owned)
+      # and declares VOLUME /data — so the sqlite DB must live under /data,
+      # not the default ./tinyauth.db in the unwritable workdir.
+      TINYAUTH_DATABASE_PATH: /data/tinyauth.db
+      # The harness runs over plain http://localhost.
+      TINYAUTH_AUTH_SECURECOOKIE: "false"
+    ports:
+      - "127.0.0.1:3232:3000"
+    volumes:
+      - tinyauth_data:/data
+
+volumes:
+  authentik_pg:
+  authentik_redis:
+  tinyauth_data:
