@@ -1118,11 +1118,15 @@ _COMICBOX_DELETE_KEYS: frozenset[str] = frozenset(
 
 # ``delete_keys`` is typed as ``Sequence(str)`` in the comicbox confuse
 # template, so feed it a sorted tuple rather than the source frozenset.
+# Both keys live under the ``general`` section of the comicbox config
+# tree; an un-nested overlay is silently ignored by confuse.
 COMICBOX_CONFIG: ComicboxSettings = get_config(
     {
         "comicbox": {
-            "loglevel": LOGLEVEL,
-            "delete_keys": tuple(sorted(_COMICBOX_DELETE_KEYS)),
+            "general": {
+                "loglevel": LOGLEVEL,
+                "delete_keys": tuple(sorted(_COMICBOX_DELETE_KEYS)),
+            }
         }
     }
 )
