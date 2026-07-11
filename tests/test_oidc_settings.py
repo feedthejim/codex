@@ -79,6 +79,8 @@ class OIDCSecretEncryptionTests(TestCase):
         assert row.client_secret == secret
         with connection.cursor() as cursor:
             cursor.execute("SELECT client_secret FROM codex_oidcsettings")
-            raw = cursor.fetchone()[0]
+            db_row = cursor.fetchone()
+        assert db_row is not None
+        raw = db_row[0]
         assert raw != secret
         assert secret not in raw

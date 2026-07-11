@@ -13,6 +13,7 @@ from codex.oidc import DISCOVERY_CACHE_KEY
 _URL: Final = "/api/v4/admin/oidc-settings"
 _TEST_URL: Final = "/api/v4/admin/oidc-settings/test"
 _HTTP_OK: Final = 200
+_HTTP_BAD_REQUEST: Final = 400
 _HTTP_FORBIDDEN: Final = 403
 _SECRET: Final = "hush-test-secret"  # noqa: S105
 
@@ -89,6 +90,38 @@ class AdminOIDCSettingsViewTests(TestCase):
         )
         assert data["clientSecretSet"] is False
         assert OIDCSettings.objects.get(pk=1).client_secret == ""
+
+    def test_put_enabled_without_prerequisites_is_rejected(self) -> None:
+        """enabled=true requires a server URL and client ID (UI mirror)."""
+        response = self.client.put(
+            _URL, {"enabled": True}, content_type="application/json"
+        )
+        assert response.status_code == _HTTP_BAD_REQUEST
+        assert OIDCSettings.objects.get(pk=1).enabled is False
+
+    def test_put_blanking_prerequisite_while_enabled_is_rejected(self) -> None:
+        OIDCSettings.objects.filter(pk=1).update(
+            enabled=True, server_url="https://idp.example.com", client_id="codex"
+        )
+        response = self.client.put(
+            _URL, {"serverUrl": ""}, content_type="application/json"
+        )
+        assert response.status_code == _HTTP_BAD_REQUEST
+        assert OIDCSettings.objects.get(pk=1).server_url == "https://idp.example.com"
+
+    def test_put_disable_and_blank_together_is_allowed(self) -> None:
+        OIDCSettings.objects.filter(pk=1).update(
+            enabled=True, server_url="https://idp.example.com", client_id="codex"
+        )
+        response = self.client.put(
+            _URL,
+            {"enabled": False, "serverUrl": "", "clientId": ""},
+            content_type="application/json",
+        )
+        assert response.status_code == _HTTP_OK
+        row = OIDCSettings.objects.get(pk=1)
+        assert row.enabled is False
+        assert row.server_url == ""
 
     def test_put_invalidates_discovery_cache(self) -> None:
         cache.set(DISCOVERY_CACHE_KEY, {"issuer": "https://stale.example.com"})

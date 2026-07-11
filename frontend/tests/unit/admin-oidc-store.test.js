@@ -17,6 +17,7 @@ vi.mock(import("@/api/v4/admin"), async (importOriginal) => {
 });
 
 import * as API from "@/api/v4/admin";
+import { canEnableOidc } from "@/components/admin/tabs/auth-tab.vue";
 import { useAdminStore } from "@/stores/admin";
 import { useAuthStore } from "@/stores/auth";
 
@@ -41,6 +42,23 @@ beforeEach(() => {
       fn.mockReset();
     }
   }
+});
+
+describe("canEnableOidc — enable-switch gate", () => {
+  it("requires both a valid server URL and a client ID", () => {
+    expect(canEnableOidc({})).toBe(false);
+    expect(canEnableOidc({ serverUrl: "https://idp.example.com" })).toBe(false);
+    expect(canEnableOidc({ clientId: "codex" })).toBe(false);
+    expect(canEnableOidc({ serverUrl: "not a url", clientId: "codex" })).toBe(
+      false,
+    );
+    expect(
+      canEnableOidc({
+        serverUrl: "https://idp.example.com",
+        clientId: "codex",
+      }),
+    ).toBe(true);
+  });
 });
 
 describe("useAdminStore — OIDC settings", () => {

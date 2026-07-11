@@ -27,10 +27,13 @@
 
       <AdminSection title="Identity Provider">
         <div class="adminCard">
+          <!-- Always allow unchecking so a cleared server URL can never
+               strand the switch in a checked, un-uncheckable state. -->
           <v-checkbox
             v-model="draft.enabled"
             label="Enable OIDC Login"
-            hint="Also requires a server URL and client ID below."
+            :disabled="!draft.enabled && !canEnable"
+            :hint="enableHint"
             persistent-hint
             density="compact"
             hide-details="auto"
@@ -293,6 +296,14 @@ const EDITABLE_FIELDS = Object.freeze([
 ]);
 const URL_REGEX = /^https?:\/\/\S+$/;
 
+export function canEnableOidc(draft) {
+  // Mirrors the backend gate: enabling requires a valid server URL and
+  // a client ID (codex.settings.db.oidc_enabled).
+  return Boolean(
+    draft?.clientId && draft?.serverUrl && URL_REGEX.test(draft.serverUrl),
+  );
+}
+
 function pickFields(source) {
   const out = {};
   for (const key of EDITABLE_FIELDS) {
@@ -324,6 +335,14 @@ export default {
     hasChanges() {
       if (this.clientSecretDraft) return true;
       return !dequal(this.draft, pickFields(this.settings));
+    },
+    canEnable() {
+      return canEnableOidc(this.draft);
+    },
+    enableHint() {
+      return this.canEnable || this.draft.enabled
+        ? "Shows the SSO login button. Local password login stays available."
+        : "Enter a valid server URL and client ID below first.";
     },
     clientSecretHint() {
       if (this.clientSecretDraft) {
