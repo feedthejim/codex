@@ -16,7 +16,6 @@ from codex.views.admin.custom_cover import (
 )
 from codex.views.admin.dump_user_data import AdminDumpUserDataView
 from codex.views.admin.email import AdminEmailSettingsView, AdminEmailTestSendView
-from codex.views.admin.oidc import AdminOIDCSettingsView, AdminOIDCTestView
 from codex.views.admin.failed_imports_seen import AdminFailedImportsSeenView
 from codex.views.admin.flag import AdminFlagViewSet
 from codex.views.admin.group import AdminGroupViewSet
@@ -25,6 +24,7 @@ from codex.views.admin.library import (
     AdminFolderListView,
     AdminLibraryViewSet,
 )
+from codex.views.admin.oidc import AdminOIDCSettingsView, AdminOIDCTestView
 from codex.views.admin.onlinetag import (
     AdminOnlineTagAbortView,
     AdminOnlineTagActiveView,

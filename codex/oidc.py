@@ -313,9 +313,7 @@ class CodexSocialAccountAdapter(DefaultSocialAccountAdapter):
         _raise_sso_error(code)
 
     @staticmethod
-    def _find_linkable_user(
-        claims: dict, row: "OIDCSettings | None"
-    ) -> User | None:
+    def _find_linkable_user(claims: dict, row: "OIDCSettings | None") -> User | None:
         """
         Find an existing unlinked local user to attach this login to.
 

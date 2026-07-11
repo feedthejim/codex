@@ -43,7 +43,7 @@ class AdminOIDCSettingsViewTests(TestCase):
 
     @override
     def setUp(self) -> None:
-        admin = User.objects.create_superuser("admin", "", "admin")  # noqa: S106
+        admin = User.objects.create_superuser("admin", "", "admin")
         self.client.force_login(admin)
 
     def test_get_returns_settings_without_secret(self) -> None:
@@ -85,9 +85,7 @@ class AdminOIDCSettingsViewTests(TestCase):
     def test_put_blank_secret_clears_it(self) -> None:
         OIDCSettings.objects.filter(pk=1).update(client_secret=_SECRET)
         data = _data(
-            self.client.put(
-                _URL, {"clientSecret": ""}, content_type="application/json"
-            )
+            self.client.put(_URL, {"clientSecret": ""}, content_type="application/json")
         )
         assert data["clientSecretSet"] is False
         assert OIDCSettings.objects.get(pk=1).client_secret == ""
@@ -107,7 +105,7 @@ class AdminOIDCTestViewTests(TestCase):
 
     @override
     def setUp(self) -> None:
-        admin = User.objects.create_superuser("admin", "", "admin")  # noqa: S106
+        admin = User.objects.create_superuser("admin", "", "admin")
         self.client.force_login(admin)
 
     def _post(self, payload: dict) -> dict:
@@ -122,9 +120,7 @@ class AdminOIDCTestViewTests(TestCase):
             "token_endpoint": "https://idp.example.com/token",
             "userinfo_endpoint": "https://idp.example.com/userinfo",
         }
-        with patch(
-            "codex.views.admin.oidc.fetch_discovery_document", return_value=doc
-        ):
+        with patch("codex.views.admin.oidc.fetch_discovery_document", return_value=doc):
             data = self._post({"serverUrl": "https://idp.example.com"})
         assert data["ok"] is True
         assert data["issuer"] == "https://idp.example.com"
@@ -146,9 +142,7 @@ class AdminOIDCTestViewTests(TestCase):
         assert "boom" in data["error"]
 
     def test_falls_back_to_saved_server_url(self) -> None:
-        OIDCSettings.objects.filter(pk=1).update(
-            server_url="https://saved.example.com"
-        )
+        OIDCSettings.objects.filter(pk=1).update(server_url="https://saved.example.com")
         with patch(
             "codex.views.admin.oidc.fetch_discovery_document", return_value={}
         ) as mock_fetch:
