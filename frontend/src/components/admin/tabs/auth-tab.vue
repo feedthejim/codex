@@ -12,278 +12,288 @@
         :item-key="key"
       />
     </AdminSection>
-    <div v-if="!settings">
-      <v-progress-circular indeterminate />
-    </div>
-    <v-form v-else ref="form" @submit.prevent="saveDraft">
-      <div class="adminProse">
-        <h3>OIDC Single Sign-On</h3>
-        <p>
-          Codex can log users in through an OIDC identity provider like
-          Authentik or Authelia. When enabled, a
-          <em>Login with {{ draft.providerName || "SSO" }}</em> button appears
-          on the login dialog and the unauthorized screen. Local password login
-          keeps working alongside it, so enabling or disabling OIDC never locks
-          anyone out. Changes take effect immediately — no restart.
-        </p>
-        <p>
-          Forward-auth gateways like tinyauth are not OIDC identity providers —
-          they sign users in at the reverse proxy instead. For tinyauth (and
-          Authelia or Authentik in proxy mode) use Remote-User header
-          authentication, enabled with <code>CODEX_AUTH_REMOTE_USER=1</code>
-          and documented in the README. Both methods can be on at once.
-        </p>
-        <p>
-          Register this redirect URI with the identity provider:
-          <code>{{ redirectUri }}</code>
-        </p>
-        <p>
-          ⚠️ OIDC logins auto-link to existing local users by username —
-          including admin accounts. Only point Codex at an identity provider
-          whose username namespace you control, and change the default admin
-          password.
-        </p>
+    <!--
+      One parent section for the whole OIDC block: the prose, the config
+      sub-sections, and the test probe. The `sub` sections render small
+      overline titles with an indented left rule so their subordination
+      to this header is visible.
+    -->
+    <AdminSection title="OIDC Single Sign-On">
+      <div v-if="!settings">
+        <v-progress-circular indeterminate />
       </div>
+      <v-form v-else ref="form" @submit.prevent="saveDraft">
+        <div class="adminProse">
+          <p>
+            Codex can log users in through an OIDC identity provider like
+            Authentik or Authelia. When enabled, a
+            <em>Login with {{ draft.providerName || "SSO" }}</em> button appears
+            on the login dialog and the unauthorized screen. Local password
+            login keeps working alongside it, so enabling or disabling OIDC
+            never locks anyone out. Changes take effect immediately — no
+            restart.
+          </p>
+          <p>
+            Forward-auth gateways like tinyauth are not OIDC identity providers
+            — they sign users in at the reverse proxy instead. For tinyauth (and
+            Authelia or Authentik in proxy mode) use Remote-User header
+            authentication, enabled with
+            <code>CODEX_AUTH_REMOTE_USER=1</code> and documented in the README.
+            Both methods can be on at once.
+          </p>
+          <p>
+            Register this redirect URI with the identity provider:
+            <code>{{ redirectUri }}</code>
+          </p>
+          <p>
+            ⚠️ OIDC logins auto-link to existing local users by username —
+            including admin accounts. Only point Codex at an identity provider
+            whose username namespace you control, and change the default admin
+            password.
+          </p>
+        </div>
 
-      <AdminSection title="Identity Provider">
-        <div class="adminCard">
-          <!-- Always allow unchecking so a cleared server URL can never
+        <AdminSection sub title="Identity Provider">
+          <div class="adminCard">
+            <!-- Always allow unchecking so a cleared server URL can never
                strand the switch in a checked, un-uncheckable state. -->
-          <v-checkbox
-            v-model="draft.enabled"
-            label="Enable OIDC Login"
-            :disabled="!draft.enabled && !canEnable"
-            :hint="enableHint"
-            persistent-hint
-            density="compact"
-            hide-details="auto"
-          />
-        </div>
-        <div class="adminCard">
-          <v-text-field
-            v-model="draft.providerName"
-            label="Provider Name"
-            hint="The login button label."
-            persistent-hint
-            hide-details="auto"
-            density="compact"
-          />
-        </div>
-        <div class="adminCard">
-          <v-text-field
-            v-model="draft.serverUrl"
-            label="Server URL"
-            placeholder="https://auth.example.com/application/o/codex/"
-            hint="Issuer URL. Discovery is fetched from
-              <server-url>/.well-known/openid-configuration."
-            persistent-hint
-            :rules="urlRules"
-            hide-details="auto"
-            density="compact"
-          />
-        </div>
-        <div class="adminCard">
-          <v-text-field
-            v-model="draft.clientId"
-            label="Client ID"
-            hide-details="auto"
-            density="compact"
-            autocomplete="off"
-          />
-        </div>
-        <div class="adminCard">
-          <!-- Hidden username proxy so password managers can pair the
-               secret field, mirroring the email tab's a11y note. -->
-          <input
-            type="text"
-            autocomplete="username"
-            :value="draft.clientId || 'codex-oidc'"
-            readonly
-            tabindex="-1"
-            aria-hidden="true"
-            class="clientIdProxy"
-          />
-          <v-text-field
-            v-model="clientSecretDraft"
-            label="Client Secret"
-            type="password"
-            autocomplete="new-password"
-            hide-details="auto"
-            density="compact"
-            :placeholder="
-              settings.clientSecretSet ? 'New Client Secret' : 'Client Secret'
-            "
-            :hint="clientSecretHint"
-            persistent-hint
-          />
-          <div v-if="settings.clientSecretSet" class="adminInlineActions">
-            <ConfirmDialog
-              button-text="Clear Credential"
-              title-text="Clear OIDC Client Secret"
-              text="Clear the saved OIDC client secret?"
-              confirm-text="Clear"
-              variant="text"
-              size="small"
-              :block="false"
-              @confirm="clearClientSecret"
+            <v-checkbox
+              v-model="draft.enabled"
+              label="Enable OIDC Login"
+              :disabled="!draft.enabled && !canEnable"
+              :hint="enableHint"
+              persistent-hint
+              density="compact"
+              hide-details="auto"
             />
           </div>
-        </div>
-        <div class="adminCard">
-          <v-text-field
-            v-model="draft.scope"
-            label="Scope"
-            hint="Space separated. Authelia group sync needs
-              'openid profile email groups'."
-            persistent-hint
-            hide-details="auto"
-            density="compact"
-          />
-        </div>
-        <div class="adminCard">
-          <v-checkbox
-            v-model="draft.pkce"
-            label="PKCE (S256)"
-            density="compact"
-            hide-details="auto"
-          />
-        </div>
-        <div class="adminCard">
-          <v-checkbox
-            v-model="draft.fetchUserinfo"
-            label="Fetch Userinfo"
-            hint="Required for Authelia, which serves username, email, and
-              groups claims only from the userinfo endpoint."
-            persistent-hint
-            density="compact"
-            hide-details="auto"
-          />
-        </div>
-      </AdminSection>
-
-      <AdminSection title="User Mapping">
-        <div class="adminCard">
-          <v-text-field
-            v-model="draft.usernameClaim"
-            label="Username Claim"
-            hint="Falls back to email, then sub."
-            persistent-hint
-            hide-details="auto"
-            density="compact"
-          />
-        </div>
-        <div class="adminCard">
-          <v-checkbox
-            v-model="draft.createUsers"
-            label="Create Users on First Login"
-            density="compact"
-            hide-details="auto"
-          />
-        </div>
-        <div class="adminCard">
-          <v-checkbox
-            v-model="draft.linkByEmail"
-            label="Link by Email"
-            hint="Also link to existing local users by email address. Only
-              enable if the identity provider verifies emails."
-            persistent-hint
-            density="compact"
-            hide-details="auto"
-          />
-        </div>
-        <div class="adminCard">
-          <v-checkbox
-            v-model="draft.syncGroups"
-            label="Sync Groups"
-            hint="Replace the user's Codex groups from the identity provider's
-              groups claim on every login. Matches existing Codex groups only."
-            persistent-hint
-            density="compact"
-            hide-details="auto"
-          />
-        </div>
-        <div class="adminCard">
-          <v-text-field
-            v-model="draft.groupsClaim"
-            label="Groups Claim"
-            hide-details="auto"
-            density="compact"
-          />
-        </div>
-        <div class="adminCard">
-          <v-text-field
-            v-model="draft.adminGroup"
-            label="Admin Group"
-            hint="Members of this identity-provider group become Codex admins;
-              removal revokes. Blank disables admin mapping."
-            persistent-hint
-            hide-details="auto"
-            density="compact"
-          />
-        </div>
-      </AdminSection>
-
-      <AdminSection title="Logout">
-        <div class="adminCard">
-          <v-checkbox
-            v-model="draft.rpInitiatedLogout"
-            label="Also Log Out of the Identity Provider"
-            hint="OIDC RP-initiated logout. Supported by Authentik; not
-              implemented by Authelia."
-            persistent-hint
-            density="compact"
-            hide-details="auto"
-          />
-        </div>
-      </AdminSection>
-
-      <AdminActionBar
-        save-text="Save Settings"
-        :saving="saving"
-        :save-disabled="!hasChanges"
-        :revert-disabled="!hasChanges || saving"
-        @revert="resetDraft"
-      />
-    </v-form>
-
-    <div v-if="settings" class="adminTestForm">
-      <AdminSection title="Test Connection">
-        <div class="adminCard">
-          <div class="adminFieldColumn">
-            <p class="testHint">
-              Fetches the discovery document for the server URL above (unsaved
-              edits included) and reports the endpoints the provider advertises.
-            </p>
-            <div class="adminInlineActions">
-              <v-btn
-                variant="tonal"
+          <div class="adminCard">
+            <v-text-field
+              v-model="draft.providerName"
+              label="Provider Name"
+              hint="The login button label."
+              persistent-hint
+              hide-details="auto"
+              density="compact"
+            />
+          </div>
+          <div class="adminCard">
+            <v-text-field
+              v-model="draft.serverUrl"
+              label="Server URL"
+              placeholder="https://auth.example.com/application/o/codex/"
+              hint="Issuer URL. Discovery is fetched from
+              <server-url>/.well-known/openid-configuration."
+              persistent-hint
+              :rules="urlRules"
+              hide-details="auto"
+              density="compact"
+            />
+          </div>
+          <div class="adminCard">
+            <v-text-field
+              v-model="draft.clientId"
+              label="Client ID"
+              hide-details="auto"
+              density="compact"
+              autocomplete="off"
+            />
+          </div>
+          <div class="adminCard">
+            <!-- Hidden username proxy so password managers can pair the
+               secret field, mirroring the email tab's a11y note. -->
+            <input
+              type="text"
+              autocomplete="username"
+              :value="draft.clientId || 'codex-oidc'"
+              readonly
+              tabindex="-1"
+              aria-hidden="true"
+              class="clientIdProxy"
+            />
+            <v-text-field
+              v-model="clientSecretDraft"
+              label="Client Secret"
+              type="password"
+              autocomplete="new-password"
+              hide-details="auto"
+              density="compact"
+              :placeholder="
+                settings.clientSecretSet ? 'New Client Secret' : 'Client Secret'
+              "
+              :hint="clientSecretHint"
+              persistent-hint
+            />
+            <div v-if="settings.clientSecretSet" class="adminInlineActions">
+              <ConfirmDialog
+                button-text="Clear Credential"
+                title-text="Clear OIDC Client Secret"
+                text="Clear the saved OIDC client secret?"
+                confirm-text="Clear"
+                variant="text"
                 size="small"
-                :loading="testing"
-                :disabled="!draft.serverUrl"
-                @click="runTest"
-              >
-                Test Connection
-              </v-btn>
-            </div>
-            <div
-              v-if="testResult"
-              class="testResult"
-              :class="{ ok: testResult.ok, error: !testResult.ok }"
-            >
-              <template v-if="testResult.ok">
-                Issuer: {{ testResult.issuer }} — authorization ✓, token ✓,
-                userinfo {{ testResult.userinfoEndpoint ? "✓" : "✗" }},
-                end-session
-                {{ testResult.endSessionEndpoint ? "✓" : "✗ (no RP logout)" }}
-              </template>
-              <template v-else>
-                {{ testResult.error || "Discovery fetch failed." }}
-              </template>
+                :block="false"
+                @confirm="clearClientSecret"
+              />
             </div>
           </div>
-        </div>
-      </AdminSection>
-    </div>
+          <div class="adminCard">
+            <v-text-field
+              v-model="draft.scope"
+              label="Scope"
+              hint="Space separated. Authelia group sync needs
+              'openid profile email groups'."
+              persistent-hint
+              hide-details="auto"
+              density="compact"
+            />
+          </div>
+          <div class="adminCard">
+            <v-checkbox
+              v-model="draft.pkce"
+              label="PKCE (S256)"
+              density="compact"
+              hide-details="auto"
+            />
+          </div>
+          <div class="adminCard">
+            <v-checkbox
+              v-model="draft.fetchUserinfo"
+              label="Fetch Userinfo"
+              hint="Required for Authelia, which serves username, email, and
+              groups claims only from the userinfo endpoint."
+              persistent-hint
+              density="compact"
+              hide-details="auto"
+            />
+          </div>
+        </AdminSection>
+
+        <AdminSection sub title="User Mapping">
+          <div class="adminCard">
+            <v-text-field
+              v-model="draft.usernameClaim"
+              label="Username Claim"
+              hint="Falls back to email, then sub."
+              persistent-hint
+              hide-details="auto"
+              density="compact"
+            />
+          </div>
+          <div class="adminCard">
+            <v-checkbox
+              v-model="draft.createUsers"
+              label="Create Users on First Login"
+              density="compact"
+              hide-details="auto"
+            />
+          </div>
+          <div class="adminCard">
+            <v-checkbox
+              v-model="draft.linkByEmail"
+              label="Link by Email"
+              hint="Also link to existing local users by email address. Only
+              enable if the identity provider verifies emails."
+              persistent-hint
+              density="compact"
+              hide-details="auto"
+            />
+          </div>
+          <div class="adminCard">
+            <v-checkbox
+              v-model="draft.syncGroups"
+              label="Sync Groups"
+              hint="Replace the user's Codex groups from the identity provider's
+              groups claim on every login. Matches existing Codex groups only."
+              persistent-hint
+              density="compact"
+              hide-details="auto"
+            />
+          </div>
+          <div class="adminCard">
+            <v-text-field
+              v-model="draft.groupsClaim"
+              label="Groups Claim"
+              hide-details="auto"
+              density="compact"
+            />
+          </div>
+          <div class="adminCard">
+            <v-text-field
+              v-model="draft.adminGroup"
+              label="Admin Group"
+              hint="Members of this identity-provider group become Codex admins;
+              removal revokes. Blank disables admin mapping."
+              persistent-hint
+              hide-details="auto"
+              density="compact"
+            />
+          </div>
+        </AdminSection>
+
+        <AdminSection sub title="Logout">
+          <div class="adminCard">
+            <v-checkbox
+              v-model="draft.rpInitiatedLogout"
+              label="Also Log Out of the Identity Provider"
+              hint="OIDC RP-initiated logout. Supported by Authentik; not
+              implemented by Authelia."
+              persistent-hint
+              density="compact"
+              hide-details="auto"
+            />
+          </div>
+        </AdminSection>
+
+        <AdminActionBar
+          save-text="Save Settings"
+          :saving="saving"
+          :save-disabled="!hasChanges"
+          :revert-disabled="!hasChanges || saving"
+          @revert="resetDraft"
+        />
+      </v-form>
+
+      <div v-if="settings" class="adminTestForm">
+        <AdminSection sub title="Test Connection">
+          <div class="adminCard">
+            <div class="adminFieldColumn">
+              <p class="testHint">
+                Fetches the discovery document for the server URL above (unsaved
+                edits included) and reports the endpoints the provider
+                advertises.
+              </p>
+              <div class="adminInlineActions">
+                <v-btn
+                  variant="tonal"
+                  size="small"
+                  :loading="testing"
+                  :disabled="!draft.serverUrl"
+                  @click="runTest"
+                >
+                  Test Connection
+                </v-btn>
+              </div>
+              <div
+                v-if="testResult"
+                class="testResult"
+                :class="{ ok: testResult.ok, error: !testResult.ok }"
+              >
+                <template v-if="testResult.ok">
+                  Issuer: {{ testResult.issuer }} — authorization ✓, token ✓,
+                  userinfo {{ testResult.userinfoEndpoint ? "✓" : "✗" }},
+                  end-session
+                  {{ testResult.endSessionEndpoint ? "✓" : "✗ (no RP logout)" }}
+                </template>
+                <template v-else>
+                  {{ testResult.error || "Discovery fetch failed." }}
+                </template>
+              </div>
+            </div>
+          </div>
+        </AdminSection>
+      </div>
+    </AdminSection>
   </div>
 </template>
 
