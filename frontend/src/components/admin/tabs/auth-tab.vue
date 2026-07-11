@@ -17,12 +17,20 @@
       sub-sections, and the test probe. The `sub` sections render small
       overline titles with an indented left rule so their subordination
       to this header is visible.
+
+      Most admins never configure OIDC, so the body hides behind a
+      disclosure that starts collapsed unless OIDC is already enabled.
     -->
-    <AdminSection title="OIDC Single Sign-On">
-      <div v-if="!settings">
+    <AdminSection title="OIDC Single Sign-On" :hint="collapsedHint">
+      <template #actions>
+        <AdminExpandToggle v-model="oidcExpanded">
+          {{ oidcExpanded ? "Hide" : "Configure" }}
+        </AdminExpandToggle>
+      </template>
+      <div v-if="oidcExpanded && !settings">
         <v-progress-circular indeterminate />
       </div>
-      <v-form v-else ref="form" @submit.prevent="saveDraft">
+      <v-form v-else-if="oidcExpanded" ref="form" @submit.prevent="saveDraft">
         <div class="adminProse">
           <p>
             Codex can log users in through an OIDC identity provider like
@@ -254,7 +262,7 @@
         />
       </v-form>
 
-      <div v-if="settings" class="adminTestForm">
+      <div v-if="oidcExpanded && settings" class="adminTestForm">
         <AdminSection sub title="Test Connection">
           <div class="adminCard">
             <div class="adminFieldColumn">
@@ -304,6 +312,7 @@ import { mapActions, mapState } from "pinia";
 import { APP_BASE } from "@/api/v4/base";
 import AdminActionBar from "@/components/admin/tabs/action-bar.vue";
 import AdminSection from "@/components/admin/tabs/admin-section.vue";
+import AdminExpandToggle from "@/components/admin/tabs/expand-toggle.vue";
 import FlagCard from "@/components/admin/tabs/flag-card.vue";
 import ConfirmDialog from "@/components/confirm-dialog.vue";
 import { useAdminStore } from "@/stores/admin";
@@ -352,6 +361,7 @@ export default {
   name: "AdminAuthTab",
   components: {
     AdminActionBar,
+    AdminExpandToggle,
     AdminSection,
     ConfirmDialog,
     FlagCard,
@@ -364,6 +374,8 @@ export default {
       testing: false,
       testResult: undefined,
       saving: false,
+      oidcExpanded: false,
+      oidcExpandedInitialized: false,
     };
   },
   computed: {
@@ -381,6 +393,14 @@ export default {
       return this.canEnable || this.draft.enabled
         ? "Shows the SSO login button. Local password login stays available."
         : "Enter a provider name, valid server URL, and client ID below first.";
+    },
+    collapsedHint() {
+      if (this.oidcExpanded) {
+        return "";
+      }
+      return this.settings?.enabled
+        ? `Enabled — logging in with ${this.settings.providerName || "SSO"}.`
+        : "Not enabled. Log users in through an identity provider like Authentik or Authelia.";
     },
     clientSecretHint() {
       if (this.clientSecretDraft) {
@@ -403,6 +423,13 @@ export default {
       immediate: true,
       handler(value) {
         this.draft = pickFields(value);
+        // Start expanded only for deployments already using OIDC; after
+        // that the disclosure is the admin's to drive (saving a disable
+        // doesn't slam the panel shut under them).
+        if (value && !this.oidcExpandedInitialized) {
+          this.oidcExpanded = Boolean(value.enabled);
+          this.oidcExpandedInitialized = true;
+        }
       },
     },
   },

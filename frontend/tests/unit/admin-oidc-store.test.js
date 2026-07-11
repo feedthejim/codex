@@ -16,8 +16,12 @@ vi.mock(import("@/api/v4/admin"), async (importOriginal) => {
   };
 });
 
+import { createTestingPinia } from "@pinia/testing";
+import { mount } from "@vue/test-utils";
+
 import * as API from "@/api/v4/admin";
-import { canEnableOidc } from "@/components/admin/tabs/auth-tab.vue";
+import AuthTab, { canEnableOidc } from "@/components/admin/tabs/auth-tab.vue";
+import vuetify from "@/plugins/vuetify";
 import { useAdminStore } from "@/stores/admin";
 import { useAuthStore } from "@/stores/auth";
 
@@ -58,6 +62,37 @@ describe("canEnableOidc — enable-switch gate", () => {
     expect(canEnableOidc({ ...complete, clientId: "" })).toBe(false);
     expect(canEnableOidc({ ...complete, serverUrl: "not a url" })).toBe(false);
     expect(canEnableOidc(complete)).toBe(true);
+  });
+});
+
+describe("AuthTab — OIDC disclosure", () => {
+  function mountTab(oidcSettings) {
+    const pinia = createTestingPinia({
+      initialState: {
+        auth: { user: { id: 1, username: "admin", isStaff: true } },
+        admin: { oidcSettings, flags: [] },
+      },
+    });
+    return mount(AuthTab, { global: { plugins: [vuetify, pinia] } });
+  }
+
+  it("starts collapsed when OIDC is disabled", () => {
+    const wrapper = mountTab({ ...SETTINGS, enabled: false });
+    expect(wrapper.find("form").exists()).toBe(false);
+    expect(wrapper.find(".adminExpandToggle").text()).toContain("Configure");
+    expect(wrapper.text()).toContain("Not enabled");
+  });
+
+  it("starts expanded when OIDC is enabled", () => {
+    const wrapper = mountTab(SETTINGS);
+    expect(wrapper.find("form").exists()).toBe(true);
+    expect(wrapper.find(".adminExpandToggle").text()).toContain("Hide");
+  });
+
+  it("expands on toggle click", async () => {
+    const wrapper = mountTab({ ...SETTINGS, enabled: false });
+    await wrapper.find(".adminExpandToggle").trigger("click");
+    expect(wrapper.find("form").exists()).toBe(true);
   });
 });
 
