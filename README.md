@@ -610,10 +610,8 @@ to 2 queries per second.
   `1` (trust XFF), which is correct when Codex sits behind a reverse proxy. Set
   to `0` when Codex is exposed directly so that clients can't forge
   `X-Forwarded-For` to poison the log.
-- `CODEX_AUTH_OIDC_*` environment variables mirror every key of the
-  `[auth.oidc]` config section for native OIDC single sign-on (e.g.
-  `CODEX_AUTH_OIDC_ENABLED`, `CODEX_AUTH_OIDC_SERVER_URL`,
-  `CODEX_AUTH_OIDC_CLIENT_ID`, `CODEX_AUTH_OIDC_CLIENT_SECRET`). See the
+- OIDC single sign-on has no environment variables or TOML keys — it is
+  configured in the Admin UI under the **Auth** tab. See the
   [OIDC Single Sign On](#oauth--oidc) section below.
 
 ### Reverse Proxy
@@ -685,27 +683,16 @@ and a "Login with …" button appears on the login dialog and the unauthorized
 screen. (tinyauth is not an OIDC provider — tinyauth users should use the
 [Remote-User](#remote-user-authentication) method below instead.)
 
-Configure it in `config/codex.toml` (every key also has a matching
-`CODEX_AUTH_OIDC_*` environment variable):
-
-```toml
-[auth.oidc]
-enabled = true
-provider_name = "Authentik"                                  # button label
-server_url = "https://auth.example.com/application/o/codex/" # issuer URL
-client_id = "codex"
-client_secret = "secret-from-the-idp"
-# scope = "openid profile email"           # add "groups" for Authelia sync
-# username_claim = "preferred_username"    # falls back to email, then sub
-# create_users = true                      # auto-provision on first login
-# link_by_email = false                    # also match local users by email
-# sync_groups = false                      # map IdP groups -> existing Codex groups
-# groups_claim = "groups"
-# admin_group = ""                         # members become Codex admins
-# rp_initiated_logout = false              # also log out of the IdP (Authentik)
-# fetch_userinfo = true                    # required for Authelia
-# pkce = true
-```
+Configure it in the Admin UI under the **Auth** tab — there are no TOML keys
+or environment variables for OIDC. Set at minimum the enable switch, the
+issuer **Server URL** (discovery is fetched from
+`<server-url>/.well-known/openid-configuration`), and the **Client ID**; the
+client secret is stored encrypted at rest. A **Test Connection** button
+fetches the provider's discovery document and reports the endpoints it
+advertises before you commit to the config. Every change takes effect on the
+next request — no restart. The tab also carries the user-mapping knobs
+(username claim, auto-provisioning, email linking, group sync, admin group)
+and RP-initiated logout, all documented inline.
 
 Register this redirect URI with your identity provider (including your
 `url_path_prefix` if you use one):
@@ -716,12 +703,12 @@ https://your-host[/url_path_prefix]/sso/oidc/login/callback/
 
 **Identity mapping.** Users are keyed on the stable OIDC `sub` claim. On first
 login, Codex links the login to an existing local user with the same username
-(and by email if `link_by_email = true`); otherwise it creates a new user when
-`create_users = true`. With `sync_groups = true` the identity provider's groups
-claim replaces the user's Codex groups on every login — only existing Codex
-groups are matched, never created — so IdP groups can drive Codex library access
-controls. `admin_group` members are granted (and, when absent from the claim,
-revoked) Codex admin rights.
+(and by email if **Link by Email** is on); otherwise it creates a new user when
+**Create Users on First Login** is on. With **Sync Groups** on, the identity
+provider's groups claim replaces the user's Codex groups on every login — only
+existing Codex groups are matched, never created — so IdP groups can drive
+Codex library access controls. **Admin Group** members are granted (and, when
+absent from the claim, revoked) Codex admin rights.
 
 ⚠️ Username linking includes admin accounts: an identity-provider user named
 `admin` links to Codex's built-in `admin` account. Only enable OIDC against an
@@ -731,18 +718,18 @@ admin password regardless. ⚠️
 **Provider notes.**
 
 - **Authentik:** create an OAuth2/OpenID provider + application. The default
-  `openid profile email` scopes work as-is; `groups` is included in the profile
-  scope. `rp_initiated_logout = true` works.
+  `openid profile email` scope works as-is; `groups` is included in the profile
+  scope. RP-initiated logout works.
 - **Authelia:** register Codex as a client in `identity_providers.oidc` with a
-  hashed client secret. Keep `fetch_userinfo = true` (Authelia serves username
-  and email claims only from the userinfo endpoint) and add `groups` to `scope`
-  for group sync. Authelia does not implement RP-initiated logout; leave
-  `rp_initiated_logout = false`.
+  hashed client secret. Keep **Fetch Userinfo** on (Authelia serves username
+  and email claims only from the userinfo endpoint) and add `groups` to the
+  scope for group sync. Authelia does not implement RP-initiated logout; leave
+  it off.
 
 **Good to know.**
 
-- `client_secret` lives in `codex.toml` — keep the config dir private
-  (`chmod 600`).
+- The client secret is entered in the Admin UI and stored encrypted at rest —
+  it never appears in `codex.toml` or the API responses.
 - Codex sessions live 60 days; disabling a user at the identity provider does
   not end their existing Codex session. Deactivate the user in Codex too, or
   lower `SESSION_COOKIE_AGE`-equivalent exposure by logging them out.
@@ -750,7 +737,7 @@ admin password regardless. ⚠️
   Basic auth for them. Use the per-user API token (User Profile in the sidebar)
   for OPDS, or set a local password.
 - On first start after upgrading, Codex applies a few small new database tables
-  for the OIDC account linkage.
+  for the OIDC account linkage and the settings singleton.
 - OIDC login failures are recorded in the [Failed-Login Log](#failed-login-log)
   when it is enabled.
 

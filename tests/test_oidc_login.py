@@ -18,10 +18,16 @@ from django.contrib.auth.models import AnonymousUser, Group, User
 from django.contrib.messages.middleware import MessageMiddleware
 from django.contrib.sessions.middleware import SessionMiddleware
 from django.core.cache import cache
-from django.test import RequestFactory, TestCase, override_settings
+from django.test import RequestFactory, TestCase
 from django.urls import resolve
 
-from codex.oidc import CodexSocialAccountAdapter, merged_claims, oidc_logout_url
+from codex.models.admin import OIDCSettings
+from codex.oidc import (
+    DISCOVERY_CACHE_KEY,
+    CodexSocialAccountAdapter,
+    merged_claims,
+    oidc_logout_url,
+)
 from codex.serializers.auth import ProfileUpdateSerializer
 from codex.settings import GRANIAN_URL_PATH_PREFIX
 
@@ -32,26 +38,20 @@ _SUB: Final = "sub-1234"
 _HTTP_OK: Final = 200
 _HTTP_NOT_FOUND: Final = 404
 _HTTP_FOUND: Final = 302
-# A configured provider app, as in a production deployment with OIDC on.
-# ``sociallogin.connect()`` resolves the provider, so linking tests need it.
-_PROVIDERS: Final = {
-    "openid_connect": {
-        "APPS": [
-            {
-                "provider_id": "oidc",
-                "name": "Test SSO",
-                "client_id": "codex-test",
-                "secret": "test-secret-hush",
-                "settings": {"server_url": "https://idp.example.com"},
-            }
-        ]
+
+
+def _seed_oidc(**overrides) -> OIDCSettings:
+    """Seed the OIDCSettings singleton as a working test deployment."""
+    defaults = {
+        "enabled": True,
+        "provider_name": "Test SSO",
+        "server_url": "https://idp.example.com",
+        "client_id": "codex-test",
+        "client_secret": "test-secret-hush",
+        **overrides,
     }
-}
-_ENABLED: Final = "codex.oidc.AUTH_OIDC_ENABLED"
-_CREATE_USERS: Final = "codex.oidc.AUTH_OIDC_CREATE_USERS"
-_LINK_BY_EMAIL: Final = "codex.oidc.AUTH_OIDC_LINK_BY_EMAIL"
-_SYNC_GROUPS: Final = "codex.oidc.AUTH_OIDC_SYNC_GROUPS"
-_ADMIN_GROUP: Final = "codex.oidc.AUTH_OIDC_ADMIN_GROUP"
+    row, _ = OIDCSettings.objects.update_or_create(pk=1, defaults=defaults)
+    return row
 
 
 def _sociallogin(id_token=None, userinfo=None, sub=_SUB) -> SocialLogin:
@@ -111,18 +111,18 @@ class OIDCInitTests(TestCase):
     """The branded init endpoint redirects into allauth when enabled."""
 
     def test_init_redirects_to_allauth_login(self) -> None:
-        with patch(_ENABLED, new=True):
-            response = self.client.get("/api/v4/auth/oidc/login")
+        _seed_oidc()
+        response = self.client.get("/api/v4/auth/oidc/login")
         assert response.status_code == _HTTP_FOUND
         assert response["Location"] == "/sso/oidc/login/"
 
 
-@override_settings(SOCIALACCOUNT_PROVIDERS=_PROVIDERS)
 class OIDCProvisionTests(TestCase):
     """User provisioning and username mapping through the real signup flow."""
 
     @override
     def setUp(self) -> None:
+        _seed_oidc()
         self.rf = RequestFactory()  # pyright: ignore[reportUninitializedInstanceVariable]
 
     def _complete(self, sociallogin: SocialLogin):
@@ -162,22 +162,22 @@ class OIDCProvisionTests(TestCase):
         assert claims["preferred_username"] == "aj"
 
     def test_create_users_off_redirects_to_error(self) -> None:
-        with patch(_CREATE_USERS, new=False):
-            sociallogin = _sociallogin(
-                id_token={"sub": _SUB}, userinfo={"preferred_username": "nobody"}
-            )
-            response = self._complete(sociallogin)
+        _seed_oidc(create_users=False)
+        sociallogin = _sociallogin(
+            id_token={"sub": _SUB}, userinfo={"preferred_username": "nobody"}
+        )
+        response = self._complete(sociallogin)
         assert response.status_code == _HTTP_FOUND
         assert response["Location"] == f"{_SSO_ERROR}?error=signup_disabled"
         assert not User.objects.filter(username="nobody").exists()
 
 
-@override_settings(SOCIALACCOUNT_PROVIDERS=_PROVIDERS)
 class OIDCLinkingTests(TestCase):
     """Account-linking policy: username always, superusers included."""
 
     @override
     def setUp(self) -> None:
+        _seed_oidc()
         self.rf = RequestFactory()  # pyright: ignore[reportUninitializedInstanceVariable]
 
     def _complete(self, sociallogin: SocialLogin):
@@ -231,22 +231,22 @@ class OIDCLinkingTests(TestCase):
 
     def test_links_by_email_when_enabled(self) -> None:
         local = User.objects.create_user("existing", "aj@example.com")
-        with patch(_LINK_BY_EMAIL, new=True):
-            sociallogin = _sociallogin(
-                id_token={"sub": _SUB},
-                userinfo={"preferred_username": "newname", "email": "AJ@example.com"},
-            )
-            response = self._complete(sociallogin)
+        _seed_oidc(link_by_email=True)
+        sociallogin = _sociallogin(
+            id_token={"sub": _SUB},
+            userinfo={"preferred_username": "newname", "email": "AJ@example.com"},
+        )
+        response = self._complete(sociallogin)
         assert response.status_code == _HTTP_FOUND
         assert SocialAccount.objects.get(uid=_SUB).user == local
 
 
-@override_settings(SOCIALACCOUNT_PROVIDERS=_PROVIDERS)
 class OIDCGroupSyncTests(TestCase):
     """Group and admin mapping from the groups claim."""
 
     @override
     def setUp(self) -> None:
+        _seed_oidc(sync_groups=True)
         self.rf = RequestFactory()  # pyright: ignore[reportUninitializedInstanceVariable]
         self.readers = Group.objects.create(name="readers")  # pyright: ignore[reportUninitializedInstanceVariable]
         self.user = User.objects.create_user("aj")  # pyright: ignore[reportUninitializedInstanceVariable]
@@ -261,15 +261,13 @@ class OIDCGroupSyncTests(TestCase):
         self.user.refresh_from_db()
 
     def test_sync_sets_existing_groups_only(self) -> None:
-        with patch(_SYNC_GROUPS, new=True):
-            self._login_with_groups(["readers", "not-a-codex-group"])
+        self._login_with_groups(["readers", "not-a-codex-group"])
         assert list(self.user.groups.all()) == [self.readers]
         assert not Group.objects.filter(name="not-a-codex-group").exists()
 
     def test_sync_removes_dropped_groups(self) -> None:
         self.user.groups.add(self.readers)
-        with patch(_SYNC_GROUPS, new=True):
-            self._login_with_groups([])
+        self._login_with_groups([])
         assert not self.user.groups.exists()
 
     def test_absent_groups_claim_is_noop(self) -> None:
@@ -277,17 +275,16 @@ class OIDCGroupSyncTests(TestCase):
         sociallogin = _sociallogin(
             id_token={"sub": _SUB}, userinfo={"preferred_username": "aj"}
         )
-        with patch(_SYNC_GROUPS, new=True):
-            _complete_social_login(_request(self.rf), sociallogin)
+        _complete_social_login(_request(self.rf), sociallogin)
         self.user.refresh_from_db()
         assert list(self.user.groups.all()) == [self.readers]
 
     def test_admin_group_grants_and_revokes(self) -> None:
-        with patch(_ADMIN_GROUP, new="codex-admins"):
-            self._login_with_groups(["codex-admins"])
-            assert self.user.is_staff
-            assert self.user.is_superuser
-            self._login_with_groups(["readers"])
+        _seed_oidc(sync_groups=True, admin_group="codex-admins")
+        self._login_with_groups(["codex-admins"])
+        assert self.user.is_staff
+        assert self.user.is_superuser
+        self._login_with_groups(["readers"])
         assert not self.user.is_staff
         assert not self.user.is_superuser
 
@@ -322,14 +319,8 @@ class OIDCSessionFlagTests(TestCase):
         assert "oidcLogoutUrl" not in flags
 
     def test_enabled_flags_are_public_and_prefixed(self) -> None:
-        with (
-            patch("codex.views.session.settings.AUTH_OIDC_ENABLED", new=True),
-            patch(
-                "codex.views.session.settings.AUTH_OIDC_PROVIDER_NAME",
-                new="Authentik",
-            ),
-        ):
-            data = self.client.get("/api/v4/session").json()["data"]
+        _seed_oidc(provider_name="Authentik")
+        data = self.client.get("/api/v4/session").json()["data"]
         flags = data["adminFlags"]
         assert flags["oidcEnabled"] is True
         assert flags["oidcProviderName"] == "Authentik"
@@ -345,17 +336,13 @@ class OIDCLogoutURLTests(TestCase):
 
     @override
     def setUp(self) -> None:
-        cache.delete("codex-oidc-discovery")
+        cache.delete(DISCOVERY_CACHE_KEY)
         self.rf = RequestFactory()  # pyright: ignore[reportUninitializedInstanceVariable]
 
     def _logout_url(self, discovery: dict) -> str:
+        _seed_oidc(rp_initiated_logout=True)
         request = self.rf.get("/api/v4/session")
-        with (
-            patch(_ENABLED, new=True),
-            patch("codex.oidc.AUTH_OIDC_RP_INITIATED_LOGOUT", new=True),
-            patch("codex.oidc.AUTH_OIDC_CLIENT_ID", new="codex-test"),
-            patch("codex.oidc._discovery_document", return_value=discovery),
-        ):
+        with patch("codex.oidc._discovery_document", return_value=discovery):
             return oidc_logout_url(request)
 
     def test_builds_end_session_url(self) -> None:

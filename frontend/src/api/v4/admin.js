@@ -212,6 +212,15 @@ export const updateEmailSettings = (data) =>
 export const sendEmailTest = (data) =>
   HTTP.post("/admin/email-settings/test", data);
 
+export const getOidcSettings = () =>
+  HTTP.get("/admin/oidc-settings", { params: { ts: Date.now() } });
+
+export const updateOidcSettings = (data) =>
+  HTTP.put("/admin/oidc-settings", data);
+
+export const testOidcConnection = (data) =>
+  HTTP.post("/admin/oidc-settings/test", data);
+
 export const getThrottleSettings = () =>
   HTTP.get("/admin/throttle-settings", { params: { ts: Date.now() } });
 

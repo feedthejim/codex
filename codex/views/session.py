@@ -19,7 +19,7 @@ from codex.models import AdminFlag
 from codex.oidc import oidc_logout_url
 from codex.serializers.auth import SessionSerializer
 from codex.settings import GRANIAN_URL_PATH_PREFIX
-from codex.settings.db import email_enabled
+from codex.settings.db import email_enabled, get_oidc_settings, oidc_enabled
 from codex.views.auth import AuthGenericAPIView, user_payload
 from codex.views.version import version_payload
 
@@ -84,9 +84,11 @@ class SessionView(AuthGenericAPIView):
         flags["email_enabled"] = email_enabled()
         # Public, unlike remote_user_enabled: the logged-out shell must
         # render the "Login with <provider>" button.
-        flags["oidc_enabled"] = bool(settings.AUTH_OIDC_ENABLED)
-        if settings.AUTH_OIDC_ENABLED:
-            flags["oidc_provider_name"] = settings.AUTH_OIDC_PROVIDER_NAME
+        oidc_row = get_oidc_settings()
+        oidc_on = oidc_enabled(oidc_row)
+        flags["oidc_enabled"] = oidc_on
+        if oidc_on and oidc_row:
+            flags["oidc_provider_name"] = oidc_row.provider_name or "SSO"
             flags["oidc_login_url"] = (
                 f"{GRANIAN_URL_PATH_PREFIX}/api/v4/auth/oidc/login"
             )

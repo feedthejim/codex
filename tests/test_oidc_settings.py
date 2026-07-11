@@ -1,95 +1,84 @@
-"""Test OIDC config plumbing: TOML keys, env overrides, and derived settings."""
+"""Test the OIDCSettings singleton: pk enforcement, gating, encryption."""
 
-from pathlib import Path
+from django.db import connection
+from django.test import TestCase
 
-from django.conf import settings
-
-from codex.settings.config import get_bool, get_str, load_codex_config
-
-_DEFAULT_TOML = Path("codex/settings/codex.toml.default")
+from codex.models.admin import OIDCSettings
+from codex.settings.db import get_oidc_settings, oidc_enabled
 
 
-def _load(tmp_path: Path, body: str):
-    config_toml = tmp_path / "codex.toml"
-    config_toml.write_text(body)
-    return load_codex_config(config_toml, _DEFAULT_TOML)
+def _seed(**overrides) -> OIDCSettings:
+    row, _ = OIDCSettings.objects.update_or_create(pk=1, defaults=overrides)
+    return row
 
 
-class TestOIDCConfigPlumbing:
-    """TOML and env override plumbing for [auth.oidc]."""
+class OIDCSettingsSingletonTests(TestCase):
+    """The model is a pk=1 singleton like EmailSettings."""
 
-    def test_default_toml_has_no_live_oidc_keys(self, tmp_path):
-        """The shipped default config documents but does not enable OIDC."""
-        config = _load(tmp_path, _DEFAULT_TOML.read_text())
-        assert get_bool(config, "auth.oidc.enabled") is False
-        assert get_str(config, "auth.oidc.server_url") == ""
+    def test_migration_seeded_singleton(self):
+        """Migration 0047 seeds pk=1 so views can .get(pk=1) safely."""
+        assert OIDCSettings.objects.filter(pk=1).exists()
 
-    def test_toml_keys_load(self, tmp_path):
-        """[auth.oidc] TOML keys land at the expected keypaths."""
-        config = _load(
-            tmp_path,
-            "[auth.oidc]\n"
-            "enabled = true\n"
-            'provider_name = "Authentik"\n'
-            'server_url = "https://auth.example.com/application/o/codex/"\n'
-            'client_id = "codex"\n'
-            'scope = "openid profile email groups"\n'
-            "pkce = false\n"
-            "link_by_email = true\n",
-        )
-        assert get_bool(config, "auth.oidc.enabled") is True
-        assert get_str(config, "auth.oidc.provider_name") == "Authentik"
-        assert get_str(config, "auth.oidc.client_id") == "codex"
-        assert get_str(config, "auth.oidc.scope") == "openid profile email groups"
-        assert get_bool(config, "auth.oidc.pkce") is False
-        assert get_bool(config, "auth.oidc.link_by_email") is True
+    def test_save_forces_pk_one(self):
+        # Fresh instances only insert cleanly when no row exists
+        # (auto_now_add fields skip the UPDATE path) — same contract as
+        # EmailSettings. Runtime writes always go through the fetched row.
+        OIDCSettings.objects.all().delete()
+        row = OIDCSettings(enabled=True)
+        row.save()
+        assert row.pk == 1
+        row.provider_name = "Other"
+        row.save()
+        assert OIDCSettings.objects.filter(pk=1).count() == 1
+        assert OIDCSettings.objects.count() == 1
 
-    def test_env_overrides_toml(self, tmp_path, monkeypatch):
-        """CODEX_AUTH_OIDC_* env vars override TOML values."""
-        monkeypatch.setenv("CODEX_AUTH_OIDC_ENABLED", "true")
-        monkeypatch.setenv("CODEX_AUTH_OIDC_SERVER_URL", "https://env.example.com")
-        monkeypatch.setenv("CODEX_AUTH_OIDC_CLIENT_ID", "env-client")
-        monkeypatch.setenv("CODEX_AUTH_OIDC_PKCE", "false")
-        config = _load(
-            tmp_path,
-            '[auth.oidc]\nenabled = false\nserver_url = "https://toml.example.com"\n',
-        )
-        assert get_bool(config, "auth.oidc.enabled") is True
-        assert get_str(config, "auth.oidc.server_url") == "https://env.example.com"
-        assert get_str(config, "auth.oidc.client_id") == "env-client"
-        # Env values arrive as strings; get_bool must coerce "false".
-        assert get_bool(config, "auth.oidc.pkce") is False
+    def test_get_oidc_settings_returns_row(self):
+        _seed(provider_name="Authentik")
+        row = get_oidc_settings()
+        assert row is not None
+        assert row.provider_name == "Authentik"
 
-    def test_defaults_when_section_missing(self, tmp_path):
-        """Missing [auth.oidc] section yields the documented defaults."""
-        config = _load(tmp_path, "[server]\nport = 9810\n")
-        assert get_bool(config, "auth.oidc.enabled") is False
-        assert get_bool(config, "auth.oidc.pkce", default=True) is True
-        assert (
-            get_str(config, "auth.oidc.username_claim", default="preferred_username")
-            == "preferred_username"
-        )
+    def test_get_oidc_settings_none_when_unseeded(self):
+        OIDCSettings.objects.all().delete()
+        assert get_oidc_settings() is None
 
 
-class TestOIDCDjangoSettings:
-    """Derived Django settings in the (disabled-by-default) test environment."""
+class OIDCEnabledDerivationTests(TestCase):
+    """enabled AND server_url AND client_id must all be set."""
 
     def test_disabled_by_default(self):
-        assert settings.AUTH_OIDC_ENABLED is False
+        assert oidc_enabled() is False
 
-    def test_provider_apps_empty_when_disabled(self):
-        providers = settings.SOCIALACCOUNT_PROVIDERS
-        assert providers["openid_connect"]["APPS"] == []
+    def test_enabled_switch_alone_is_not_enough(self):
+        _seed(enabled=True)
+        assert oidc_enabled() is False
 
-    def test_adapter_and_backends_wired(self):
-        assert settings.SOCIALACCOUNT_ADAPTER == "codex.oidc.CodexSocialAccountAdapter"
-        assert (
-            "allauth.account.auth_backends.AuthenticationBackend"
-            in settings.AUTHENTICATION_BACKENDS
+    def test_requires_client_id(self):
+        _seed(enabled=True, server_url="https://idp.example.com")
+        assert oidc_enabled() is False
+
+    def test_fully_configured_is_enabled(self):
+        row = _seed(
+            enabled=True, server_url="https://idp.example.com", client_id="codex"
         )
+        assert oidc_enabled() is True
+        assert oidc_enabled(row) is True
 
-    def test_allauth_apps_installed(self):
-        assert "allauth.socialaccount.providers.openid_connect" in (
-            settings.INSTALLED_APPS
-        )
-        assert "allauth.account.middleware.AccountMiddleware" in settings.MIDDLEWARE
+    def test_enabled_off_wins_over_config(self):
+        _seed(enabled=False, server_url="https://idp.example.com", client_id="codex")
+        assert oidc_enabled() is False
+
+
+class OIDCSecretEncryptionTests(TestCase):
+    """client_secret is encrypted at rest and decrypted on read."""
+
+    def test_secret_round_trips_but_is_not_plaintext_in_db(self):
+        secret = "hush-hush-test-secret"  # noqa: S105
+        _seed(client_secret=secret)
+        row = OIDCSettings.objects.get(pk=1)
+        assert row.client_secret == secret
+        with connection.cursor() as cursor:
+            cursor.execute("SELECT client_secret FROM codex_oidcsettings")
+            raw = cursor.fetchone()[0]
+        assert raw != secret
+        assert secret not in raw

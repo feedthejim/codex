@@ -1,0 +1,436 @@
+<template>
+  <div id="auth" class="adminReadingColumn">
+    <div v-if="!settings">
+      <v-progress-circular indeterminate />
+    </div>
+    <v-form v-else ref="form" @submit.prevent="saveDraft">
+      <div class="adminProse">
+        <p>
+          Codex can log users in through an OIDC identity provider like
+          Authentik or Authelia. When enabled, a
+          <em>Login with {{ draft.providerName || "SSO" }}</em> button appears
+          on the login dialog and the unauthorized screen. Local password login
+          keeps working alongside it, so enabling or disabling OIDC never locks
+          anyone out. Changes take effect immediately — no restart.
+        </p>
+        <p>
+          Register this redirect URI with the identity provider:
+          <code>{{ redirectUri }}</code>
+        </p>
+        <p>
+          ⚠️ OIDC logins auto-link to existing local users by username —
+          including admin accounts. Only point Codex at an identity provider
+          whose username namespace you control, and change the default admin
+          password.
+        </p>
+      </div>
+
+      <AdminSection title="Identity Provider">
+        <div class="adminCard">
+          <v-checkbox
+            v-model="draft.enabled"
+            label="Enable OIDC Login"
+            hint="Also requires a server URL and client ID below."
+            persistent-hint
+            density="compact"
+            hide-details="auto"
+          />
+        </div>
+        <div class="adminCard">
+          <v-text-field
+            v-model="draft.providerName"
+            label="Provider Name"
+            hint="The login button label."
+            persistent-hint
+            hide-details="auto"
+            density="compact"
+          />
+        </div>
+        <div class="adminCard">
+          <v-text-field
+            v-model="draft.serverUrl"
+            label="Server URL"
+            placeholder="https://auth.example.com/application/o/codex/"
+            hint="Issuer URL. Discovery is fetched from
+              <server-url>/.well-known/openid-configuration."
+            persistent-hint
+            :rules="urlRules"
+            hide-details="auto"
+            density="compact"
+          />
+        </div>
+        <div class="adminCard">
+          <v-text-field
+            v-model="draft.clientId"
+            label="Client ID"
+            hide-details="auto"
+            density="compact"
+            autocomplete="off"
+          />
+        </div>
+        <div class="adminCard">
+          <!-- Hidden username proxy so password managers can pair the
+               secret field, mirroring the email tab's a11y note. -->
+          <input
+            type="text"
+            autocomplete="username"
+            :value="draft.clientId || 'codex-oidc'"
+            readonly
+            tabindex="-1"
+            aria-hidden="true"
+            class="clientIdProxy"
+          />
+          <v-text-field
+            v-model="clientSecretDraft"
+            label="Client Secret"
+            type="password"
+            autocomplete="new-password"
+            hide-details="auto"
+            density="compact"
+            :placeholder="
+              settings.clientSecretSet ? 'New Client Secret' : 'Client Secret'
+            "
+            :hint="clientSecretHint"
+            persistent-hint
+          />
+          <div v-if="settings.clientSecretSet" class="adminInlineActions">
+            <ConfirmDialog
+              button-text="Clear Credential"
+              title-text="Clear OIDC Client Secret"
+              text="Clear the saved OIDC client secret?"
+              confirm-text="Clear"
+              variant="text"
+              size="small"
+              :block="false"
+              @confirm="clearClientSecret"
+            />
+          </div>
+        </div>
+        <div class="adminCard">
+          <v-text-field
+            v-model="draft.scope"
+            label="Scope"
+            hint="Space separated. Authelia group sync needs
+              'openid profile email groups'."
+            persistent-hint
+            hide-details="auto"
+            density="compact"
+          />
+        </div>
+        <div class="adminCard">
+          <v-checkbox
+            v-model="draft.pkce"
+            label="PKCE (S256)"
+            density="compact"
+            hide-details="auto"
+          />
+        </div>
+        <div class="adminCard">
+          <v-checkbox
+            v-model="draft.fetchUserinfo"
+            label="Fetch Userinfo"
+            hint="Required for Authelia, which serves username, email, and
+              groups claims only from the userinfo endpoint."
+            persistent-hint
+            density="compact"
+            hide-details="auto"
+          />
+        </div>
+      </AdminSection>
+
+      <AdminSection title="User Mapping">
+        <div class="adminCard">
+          <v-text-field
+            v-model="draft.usernameClaim"
+            label="Username Claim"
+            hint="Falls back to email, then sub."
+            persistent-hint
+            hide-details="auto"
+            density="compact"
+          />
+        </div>
+        <div class="adminCard">
+          <v-checkbox
+            v-model="draft.createUsers"
+            label="Create Users on First Login"
+            density="compact"
+            hide-details="auto"
+          />
+        </div>
+        <div class="adminCard">
+          <v-checkbox
+            v-model="draft.linkByEmail"
+            label="Link by Email"
+            hint="Also link to existing local users by email address. Only
+              enable if the identity provider verifies emails."
+            persistent-hint
+            density="compact"
+            hide-details="auto"
+          />
+        </div>
+        <div class="adminCard">
+          <v-checkbox
+            v-model="draft.syncGroups"
+            label="Sync Groups"
+            hint="Replace the user's Codex groups from the identity provider's
+              groups claim on every login. Matches existing Codex groups only."
+            persistent-hint
+            density="compact"
+            hide-details="auto"
+          />
+        </div>
+        <div class="adminCard">
+          <v-text-field
+            v-model="draft.groupsClaim"
+            label="Groups Claim"
+            hide-details="auto"
+            density="compact"
+          />
+        </div>
+        <div class="adminCard">
+          <v-text-field
+            v-model="draft.adminGroup"
+            label="Admin Group"
+            hint="Members of this identity-provider group become Codex admins;
+              removal revokes. Blank disables admin mapping."
+            persistent-hint
+            hide-details="auto"
+            density="compact"
+          />
+        </div>
+      </AdminSection>
+
+      <AdminSection title="Logout">
+        <div class="adminCard">
+          <v-checkbox
+            v-model="draft.rpInitiatedLogout"
+            label="Also Log Out of the Identity Provider"
+            hint="OIDC RP-initiated logout. Supported by Authentik; not
+              implemented by Authelia."
+            persistent-hint
+            density="compact"
+            hide-details="auto"
+          />
+        </div>
+      </AdminSection>
+
+      <AdminActionBar
+        save-text="Save Settings"
+        :saving="saving"
+        :save-disabled="!hasChanges"
+        :revert-disabled="!hasChanges || saving"
+        @revert="resetDraft"
+      />
+    </v-form>
+
+    <div v-if="settings" class="adminTestForm">
+      <AdminSection title="Test Connection">
+        <div class="adminCard">
+          <div class="adminFieldColumn">
+            <p class="testHint">
+              Fetches the discovery document for the server URL above (unsaved
+              edits included) and reports the endpoints the provider advertises.
+            </p>
+            <div class="adminInlineActions">
+              <v-btn
+                variant="tonal"
+                size="small"
+                :loading="testing"
+                :disabled="!draft.serverUrl"
+                @click="runTest"
+              >
+                Test Connection
+              </v-btn>
+            </div>
+            <div
+              v-if="testResult"
+              class="testResult"
+              :class="{ ok: testResult.ok, error: !testResult.ok }"
+            >
+              <template v-if="testResult.ok">
+                Issuer: {{ testResult.issuer }} — authorization ✓, token ✓,
+                userinfo {{ testResult.userinfoEndpoint ? "✓" : "✗" }},
+                end-session
+                {{ testResult.endSessionEndpoint ? "✓" : "✗ (no RP logout)" }}
+              </template>
+              <template v-else>
+                {{ testResult.error || "Discovery fetch failed." }}
+              </template>
+            </div>
+          </div>
+        </div>
+      </AdminSection>
+    </div>
+  </div>
+</template>
+
+<script>
+import { dequal } from "dequal";
+import { mapActions, mapState } from "pinia";
+
+import { APP_BASE } from "@/api/v4/base";
+import AdminActionBar from "@/components/admin/tabs/action-bar.vue";
+import AdminSection from "@/components/admin/tabs/admin-section.vue";
+import ConfirmDialog from "@/components/confirm-dialog.vue";
+import { useAdminStore } from "@/stores/admin";
+
+const EDITABLE_FIELDS = Object.freeze([
+  "enabled",
+  "providerName",
+  "serverUrl",
+  "clientId",
+  "scope",
+  "pkce",
+  "tokenAuthMethod",
+  "fetchUserinfo",
+  "usernameClaim",
+  "createUsers",
+  "linkByEmail",
+  "syncGroups",
+  "groupsClaim",
+  "adminGroup",
+  "rpInitiatedLogout",
+]);
+const URL_REGEX = /^https?:\/\/\S+$/;
+
+function pickFields(source) {
+  const out = {};
+  for (const key of EDITABLE_FIELDS) {
+    out[key] = source?.[key] ?? "";
+  }
+  return out;
+}
+
+export default {
+  name: "AdminAuthTab",
+  components: {
+    AdminActionBar,
+    AdminSection,
+    ConfirmDialog,
+  },
+  data() {
+    return {
+      draft: pickFields(undefined),
+      clientSecretDraft: "",
+      testing: false,
+      testResult: undefined,
+      saving: false,
+    };
+  },
+  computed: {
+    ...mapState(useAdminStore, {
+      settings: (state) => state.oidcSettings,
+    }),
+    hasChanges() {
+      if (this.clientSecretDraft) return true;
+      return !dequal(this.draft, pickFields(this.settings));
+    },
+    clientSecretHint() {
+      if (this.clientSecretDraft) {
+        return "Will be saved with the rest of the OIDC settings.";
+      }
+      return this.settings.clientSecretSet
+        ? "Credential set (encrypted at rest)"
+        : "Not configured. Leave blank for public clients.";
+    },
+    redirectUri() {
+      // APP_BASE always ends with a slash ("/" or "/codex/").
+      return `${globalThis.location.origin}${APP_BASE}sso/oidc/login/callback/`;
+    },
+    urlRules() {
+      return [(v) => !v || URL_REGEX.test(v) || "Enter a valid https URL"];
+    },
+  },
+  watch: {
+    settings: {
+      immediate: true,
+      handler(value) {
+        this.draft = pickFields(value);
+      },
+    },
+  },
+  mounted() {
+    this.loadOidcSettings();
+  },
+  methods: {
+    ...mapActions(useAdminStore, [
+      "loadOidcSettings",
+      "updateOidcSettings",
+      "testOidcConnection",
+    ]),
+    resetDraft() {
+      this.draft = pickFields(this.settings);
+    },
+    async saveDraft() {
+      const form = this.$refs.form;
+      if (form) {
+        const { valid } = await form.validate();
+        if (!valid) return;
+      }
+      const payload = { ...this.draft };
+      if (this.clientSecretDraft) {
+        payload.clientSecret = this.clientSecretDraft;
+      }
+      this.saving = true;
+      try {
+        await this.updateOidcSettings(payload);
+        this.clientSecretDraft = "";
+      } finally {
+        this.saving = false;
+      }
+    },
+    clearClientSecret() {
+      this.updateOidcSettings({ clientSecret: "" });
+    },
+    async runTest() {
+      this.testing = true;
+      this.testResult = undefined;
+      try {
+        this.testResult = await this.testOidcConnection({
+          serverUrl: this.draft.serverUrl,
+        });
+      } finally {
+        this.testing = false;
+      }
+    },
+  },
+};
+</script>
+
+<style scoped lang="scss">
+@use "@/components/admin/tabs/admin-section.scss";
+@use "@/components/admin/tabs/design.scss" as d;
+
+.adminTestForm {
+  margin-top: d.$space-8;
+}
+
+.testHint {
+  font-size: 0.9em;
+  color: rgba(var(--v-theme-on-surface), 0.75);
+}
+
+.testResult {
+  font-size: 0.9em;
+  padding-top: 4px;
+}
+
+.testResult.ok {
+  color: rgb(var(--v-theme-success));
+}
+
+.testResult.error {
+  color: rgb(var(--v-theme-error));
+}
+
+.clientIdProxy {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  border: 0;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+}
+</style>

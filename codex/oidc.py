@@ -2,12 +2,20 @@
 Native OIDC (SSO) login via django-allauth.
 
 The allauth apps are always installed (see ``codex.settings``); everything
-here is gated at runtime on ``AUTH_OIDC_ENABLED``. The flow is:
+here is gated at runtime on the :class:`codex.models.admin.OIDCSettings`
+DB singleton, edited in the Admin UI Auth tab. cachalot caches the row and
+invalidates it on write, so enabling, disabling, or repointing the
+identity provider takes effect on the next request without a restart.
+The flow is:
 
 1. ``GET /api/v4/auth/oidc/login`` (:class:`OIDCLoginRedirectView`, throttled,
    404 when disabled) redirects to allauth's provider login view.
 2. allauth redirects to the identity provider's authorize endpoint
-   (state + PKCE bound to the Django session).
+   (state + PKCE bound to the Django session). allauth discovers the
+   provider app through :meth:`CodexSocialAccountAdapter.list_apps`,
+   which builds an unsaved ``SocialApp`` from the DB singleton — when
+   OIDC is off there is no app, so allauth's own
+   ``SocialApp.DoesNotExist -> Http404`` keeps every path a clean 404.
 3. The provider redirects back to ``/sso/oidc/login/callback/`` where
    allauth exchanges the code and builds a ``SocialLogin``.
 4. :class:`CodexSocialAccountAdapter` links or provisions the Django user
@@ -36,27 +44,19 @@ from loguru import logger
 from rest_framework.views import APIView
 
 from codex.failed_login_log import log_failed_login
-from codex.settings import (
-    AUTH_OIDC_ADMIN_GROUP,
-    AUTH_OIDC_CLIENT_ID,
-    AUTH_OIDC_CREATE_USERS,
-    AUTH_OIDC_ENABLED,
-    AUTH_OIDC_GROUPS_CLAIM,
-    AUTH_OIDC_LINK_BY_EMAIL,
-    AUTH_OIDC_RP_INITIATED_LOGOUT,
-    AUTH_OIDC_SERVER_URL,
-    AUTH_OIDC_SYNC_GROUPS,
-    AUTH_OIDC_USERNAME_CLAIM,
-    GRANIAN_URL_PATH_PREFIX,
-)
+from codex.settings import GRANIAN_URL_PATH_PREFIX
+from codex.settings.db import get_oidc_settings, oidc_enabled
 from codex.throttling import ScopedRateThrottle
 
 if TYPE_CHECKING:
-    from allauth.socialaccount.models import SocialLogin
+    from allauth.socialaccount.models import SocialApp, SocialLogin
     from django.http import HttpRequest
+
+    from codex.models.admin import OIDCSettings
 
 _SSO_ERROR_PATH = f"{GRANIAN_URL_PATH_PREFIX}/auth/sso-error"
 _OIDC_PROVIDER_ID = "oidc"
+_DEFAULT_USERNAME_CLAIM = "preferred_username"
 # OAuth2 error codes passed through to the SPA error page; anything else
 # collapses to server_error so the redirect never reflects attacker input.
 _KNOWN_ERRORS = frozenset(
@@ -70,7 +70,7 @@ _KNOWN_ERRORS = frozenset(
 )
 
 
-_DISCOVERY_CACHE_KEY = "codex-oidc-discovery"
+DISCOVERY_CACHE_KEY = "codex-oidc-discovery"
 _DISCOVERY_CACHE_TTL = 60 * 60
 _DISCOVERY_FAILURE_TTL = 60 * 5
 _DISCOVERY_TIMEOUT = 5
@@ -84,28 +84,42 @@ def user_is_oidc_managed(user) -> bool:
     )
 
 
-def _discovery_document() -> dict:
+def discovery_url(server_url: str) -> str:
+    """Return the well-known discovery URL for an issuer URL."""
+    if "/.well-known/" in server_url:
+        return server_url
+    return server_url.rstrip("/") + _WELL_KNOWN
+
+
+def fetch_discovery_document(server_url: str) -> dict:
+    """
+    Fetch the provider's OIDC discovery document, uncached.
+
+    Raises ``requests.RequestException`` or ``ValueError`` on failure —
+    used directly by the Admin UI's Test Connection endpoint.
+    """
+    response = requests.get(discovery_url(server_url), timeout=_DISCOVERY_TIMEOUT)
+    response.raise_for_status()
+    return response.json()
+
+
+def _discovery_document(server_url: str) -> dict:
     """
     Fetch and cache the provider's OIDC discovery document.
 
     Failures are negative-cached briefly so an unreachable identity
     provider can't turn every session boot into a hanging request.
     """
-    doc = cache.get(_DISCOVERY_CACHE_KEY)
+    doc = cache.get(DISCOVERY_CACHE_KEY)
     if doc is not None:
         return doc
-    url = AUTH_OIDC_SERVER_URL
-    if "/.well-known/" not in url:
-        url = url.rstrip("/") + _WELL_KNOWN
     try:
-        response = requests.get(url, timeout=_DISCOVERY_TIMEOUT)
-        response.raise_for_status()
-        doc = response.json()
+        doc = fetch_discovery_document(server_url)
     except (requests.RequestException, ValueError) as exc:
         logger.warning(f"OIDC discovery fetch failed: {type(exc).__name__}")
-        cache.set(_DISCOVERY_CACHE_KEY, {}, _DISCOVERY_FAILURE_TTL)
+        cache.set(DISCOVERY_CACHE_KEY, {}, _DISCOVERY_FAILURE_TTL)
         return {}
-    cache.set(_DISCOVERY_CACHE_KEY, doc, _DISCOVERY_CACHE_TTL)
+    cache.set(DISCOVERY_CACHE_KEY, doc, _DISCOVERY_CACHE_TTL)
     return doc
 
 
@@ -118,14 +132,15 @@ def oidc_logout_url(request: "HttpRequest") -> str:
     raw ID token JWT. Authentik accepts this; Authelia has no end_session
     endpoint, so its discovery document simply omits the key.
     """
-    if not (AUTH_OIDC_ENABLED and AUTH_OIDC_RP_INITIATED_LOGOUT):
+    row = get_oidc_settings()
+    if not (oidc_enabled(row) and row and row.rp_initiated_logout):
         return ""
-    end_session = _discovery_document().get("end_session_endpoint")
+    end_session = _discovery_document(row.server_url).get("end_session_endpoint")
     if not end_session:
         return ""
     post_logout = request.build_absolute_uri(GRANIAN_URL_PATH_PREFIX or "/")
     params = urlencode(
-        {"client_id": AUTH_OIDC_CLIENT_ID, "post_logout_redirect_uri": post_logout}
+        {"client_id": row.client_id, "post_logout_redirect_uri": post_logout}
     )
     return f"{end_session}?{params}"
 
@@ -157,24 +172,71 @@ def merged_claims(sociallogin: "SocialLogin") -> dict:
     return dict(extra)
 
 
-def _map_username(claims: dict) -> str:
+def _map_username(claims: dict, row: "OIDCSettings | None") -> str:
     """Map claims to a Codex username: username_claim -> email -> sub."""
-    username = (
-        claims.get(AUTH_OIDC_USERNAME_CLAIM)
-        or claims.get("email")
-        or claims.get("sub")
-        or ""
-    )
+    claim = (row.username_claim if row else "") or _DEFAULT_USERNAME_CLAIM
+    username = claims.get(claim) or claims.get("email") or claims.get("sub") or ""
     return str(username)
+
+
+def _build_social_app(row: "OIDCSettings") -> "SocialApp":
+    """
+    Build allauth's unsaved SocialApp from the DB singleton.
+
+    The same shape allauth itself builds from
+    ``SOCIALACCOUNT_PROVIDERS[...]["APPS"]`` entries — per-app
+    ``settings["scope"]`` wins over provider-level SCOPE in
+    ``OAuth2Provider.get_scope``.
+    """
+    from allauth.socialaccount.models import SocialApp
+
+    app_settings = {
+        "server_url": row.server_url,
+        "oauth_pkce_enabled": row.pkce,
+        "fetch_userinfo": row.fetch_userinfo,
+        "scope": row.scope.split(),
+    }
+    if row.token_auth_method:
+        app_settings["token_auth_method"] = row.token_auth_method
+    return SocialApp(
+        provider="openid_connect",
+        provider_id=_OIDC_PROVIDER_ID,
+        name=row.provider_name or "SSO",
+        client_id=row.client_id,
+        secret=row.client_secret,
+        settings=app_settings,
+    )
 
 
 class CodexSocialAccountAdapter(DefaultSocialAccountAdapter):
     """Link, provision, and sync Codex users from OIDC claims."""
 
     @override
+    def list_apps(self, request, provider=None, client_id=None) -> list:
+        """
+        Blend in the OIDC app configured by the Admin UI singleton.
+
+        Mirrors allauth's own filter semantics for settings-configured
+        apps. When OIDC is disabled no app exists, so allauth's provider
+        views 404 on their own.
+        """
+        apps = super().list_apps(request, provider=provider, client_id=client_id)
+        row = get_oidc_settings()
+        if not (oidc_enabled(row) and row):
+            return apps
+        app = _build_social_app(row)
+        if client_id and app.client_id != client_id:
+            return apps
+        if provider and provider not in (app.provider, app.provider_id):
+            return apps
+        apps.append(app)
+        return apps
+
+    @override
     def is_open_for_signup(self, request, sociallogin) -> bool:
         """Gate auto-provisioning on the create_users config knob."""
-        return AUTH_OIDC_CREATE_USERS
+        row = get_oidc_settings()
+        return bool(row and row.create_users)
 
     @override
     def pre_social_login(self, request, sociallogin) -> None:
@@ -187,23 +249,24 @@ class CodexSocialAccountAdapter(DefaultSocialAccountAdapter):
         on. Linking records the SocialAccount keyed on the stable ``sub``
         claim, so later logins match by sub even if the username changes.
         """
+        row = get_oidc_settings()
         claims = merged_claims(sociallogin)
         if sociallogin.is_existing:
             # Known sub: sync and let allauth log the user in.
-            self._sync_user(sociallogin.user, claims)
+            self._sync_user(sociallogin.user, claims, row)
             return
-        if user := self._find_linkable_user(claims):
+        if user := self._find_linkable_user(claims, row):
             sociallogin.connect(request, user)
-            self._sync_user(user, claims)
+            self._sync_user(user, claims, row)
             return
-        if not AUTH_OIDC_CREATE_USERS:
-            log_failed_login(request, _map_username(claims))
+        if not (row and row.create_users):
+            log_failed_login(request, _map_username(claims, row))
             _raise_sso_error("signup_disabled")
         if self._email_conflict(claims):
             # Unlinked local user owns this email and link_by_email is
             # off. Without this check allauth would render its own signup
             # form into the SPA-less void.
-            log_failed_login(request, _map_username(claims))
+            log_failed_login(request, _map_username(claims, row))
             _raise_sso_error("email_exists")
 
     @override
@@ -217,7 +280,8 @@ class CodexSocialAccountAdapter(DefaultSocialAccountAdapter):
         falls back to a generic "user" name.
         """
         user = super().populate_user(request, sociallogin, data)
-        if username := _map_username(merged_claims(sociallogin)):
+        row = get_oidc_settings()
+        if username := _map_username(merged_claims(sociallogin), row):
             if User.objects.filter(username__iexact=username).exists():
                 sub_hash = sha256(str(sociallogin.account.uid).encode()).hexdigest()
                 username = f"{username}-{sub_hash[:8]}"
@@ -228,7 +292,7 @@ class CodexSocialAccountAdapter(DefaultSocialAccountAdapter):
     def save_user(self, request, sociallogin, form=None):
         """Provision a new user, then sync groups/admin from claims."""
         user = super().save_user(request, sociallogin, form)
-        self._sync_user(user, merged_claims(sociallogin))
+        self._sync_user(user, merged_claims(sociallogin), get_oidc_settings())
         return user
 
     @override
@@ -249,18 +313,20 @@ class CodexSocialAccountAdapter(DefaultSocialAccountAdapter):
         _raise_sso_error(code)
 
     @staticmethod
-    def _find_linkable_user(claims: dict) -> User | None:
+    def _find_linkable_user(
+        claims: dict, row: "OIDCSettings | None"
+    ) -> User | None:
         """
         Find an existing unlinked local user to attach this login to.
 
         Skips users that already have an OIDC link (a different sub with
         the same preferred_username must not hijack their account).
         """
-        if username := _map_username(claims):
+        if username := _map_username(claims, row):
             user = User.objects.filter(username__iexact=username).first()
             if user and not user.socialaccount_set.exists():  # pyright: ignore[reportAttributeAccessIssue], # ty: ignore[unresolved-attribute]
                 return user
-        if AUTH_OIDC_LINK_BY_EMAIL and (email := claims.get("email")):
+        if row and row.link_by_email and (email := claims.get("email")):
             user = User.objects.filter(email__iexact=str(email)).first()
             if user and not user.socialaccount_set.exists():  # pyright: ignore[reportAttributeAccessIssue], # ty: ignore[unresolved-attribute]
                 return user
@@ -273,7 +339,7 @@ class CodexSocialAccountAdapter(DefaultSocialAccountAdapter):
         return bool(email and User.objects.filter(email__iexact=str(email)).exists())
 
     @staticmethod
-    def _sync_user(user, claims: dict) -> None:
+    def _sync_user(user, claims: dict, row: "OIDCSettings | None") -> None:
         """
         Sync Django groups and admin flags from the groups claim.
 
@@ -283,17 +349,17 @@ class CodexSocialAccountAdapter(DefaultSocialAccountAdapter):
         EXISTING Codex groups are matched; groups are never created because
         they gate library ACLs.
         """
-        if not (AUTH_OIDC_SYNC_GROUPS or AUTH_OIDC_ADMIN_GROUP) or not user:
+        if not row or not (row.sync_groups or row.admin_group) or not user:
             return
-        group_names = claims.get(AUTH_OIDC_GROUPS_CLAIM)
+        group_names = claims.get(row.groups_claim or "groups")
         if not isinstance(group_names, list):
             return
         names = {str(name) for name in group_names}
-        if AUTH_OIDC_SYNC_GROUPS:
+        if row.sync_groups:
             user.groups.set(Group.objects.filter(name__in=names))
-        if AUTH_OIDC_ADMIN_GROUP:
+        if row.admin_group:
             # The identity provider is authoritative: grants AND revokes.
-            is_admin = AUTH_OIDC_ADMIN_GROUP in names
+            is_admin = row.admin_group in names
             if user.is_staff != is_admin or user.is_superuser != is_admin:
                 user.is_staff = user.is_superuser = is_admin
                 user.save(update_fields=("is_staff", "is_superuser"))
@@ -316,7 +382,7 @@ class OIDCLoginRedirectView(APIView):
     def get(self, request: "HttpRequest") -> HttpResponseRedirect:
         """Redirect to allauth's provider login view."""
         del request
-        if not AUTH_OIDC_ENABLED:
+        if not oidc_enabled():
             raise Http404
         url = reverse("openid_connect_login", kwargs={"provider_id": _OIDC_PROVIDER_ID})
         return HttpResponseRedirect(url)
