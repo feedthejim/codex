@@ -684,15 +684,15 @@ screen. (tinyauth is not an OIDC provider — tinyauth users should use the
 [Remote-User](#remote-user-authentication) method below instead.)
 
 Configure it in the Admin UI under the **Auth** tab — there are no TOML keys or
-environment variables for OIDC. Set at minimum the enable switch, the issuer
-**Server URL** (discovery is fetched from
-`<server-url>/.well-known/openid-configuration`), and the **Client ID**; the
-client secret is stored encrypted at rest. A **Test Connection** button fetches
-the provider's discovery document and reports the endpoints it advertises before
-you commit to the config. Every change takes effect on the next request — no
-restart. The tab also carries the user-mapping knobs (username claim,
-auto-provisioning, email linking, group sync, admin group) and RP-initiated
-logout, all documented inline.
+environment variables for OIDC. Set at minimum the **Provider Name** (the login
+button label), the issuer **Server URL** (discovery is fetched from
+`<server-url>/.well-known/openid-configuration`), and the **Client ID**, then
+flip the enable switch; the client secret is stored encrypted at rest. A **Test
+Connection** button fetches the provider's discovery document and reports the
+endpoints it advertises before you commit to the config. Every change takes
+effect on the next request — no restart. The tab also carries the user-mapping
+knobs (username claim, auto-provisioning, email linking, group sync, admin
+group) and RP-initiated logout, all documented inline.
 
 Register this redirect URI with your identity provider (including your
 `url_path_prefix` if you use one):

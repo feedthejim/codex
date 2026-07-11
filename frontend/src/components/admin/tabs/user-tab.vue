@@ -130,18 +130,10 @@
         </p>
       </div>
       <!--
-        Account & Access controls live on the Users tab so admins can
-        change registration / verification / anonymous-access policy
-        next to the user list they affect. The Settings tab no longer
-        mirrors these.
+        Account & Access controls (registration / verification /
+        anonymous access) live on the Auth tab with the rest of the
+        login policy. The Settings tab doesn't mirror them either.
       -->
-      <AdminSection title="Account & Access">
-        <FlagCard
-          v-for="key in ACCESS_FLAG_KEYS"
-          :key="`f${key}`"
-          :item-key="key"
-        />
-      </AdminSection>
       <AdminSection title="Age Ratings">
         <FlagCard
           v-for="key in AGE_RATING_FLAG_KEYS"
@@ -170,7 +162,6 @@ import ChangePasswordDialog from "@/components/auth/change-password-dialog.vue";
 import { UNRESTRICTED_LABEL, useAdminStore } from "@/stores/admin";
 import { useAuthStore } from "@/stores/auth";
 
-const ACCESS_FLAG_KEYS = Object.freeze(["RG", "RV", "NU"]);
 const AGE_RATING_FLAG_KEYS = Object.freeze(["AA", "AR"]);
 
 export default {
@@ -188,7 +179,6 @@ export default {
   data() {
     return {
       AdminUserCreateUpdateInputs: markRaw(AdminUserCreateUpdateInputs),
-      ACCESS_FLAG_KEYS,
       AGE_RATING_FLAG_KEYS,
       mdiEmailArrowRightOutline,
       headers: [

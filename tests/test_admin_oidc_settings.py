@@ -109,6 +109,16 @@ class AdminOIDCSettingsViewTests(TestCase):
         assert response.status_code == _HTTP_BAD_REQUEST
         assert OIDCSettings.objects.get(pk=1).server_url == "https://idp.example.com"
 
+    def test_put_blanking_provider_name_while_enabled_is_rejected(self) -> None:
+        OIDCSettings.objects.filter(pk=1).update(
+            enabled=True, server_url="https://idp.example.com", client_id="codex"
+        )
+        response = self.client.put(
+            _URL, {"providerName": ""}, content_type="application/json"
+        )
+        assert response.status_code == _HTTP_BAD_REQUEST
+        assert OIDCSettings.objects.get(pk=1).provider_name == "SSO"
+
     def test_put_disable_and_blank_together_is_allowed(self) -> None:
         OIDCSettings.objects.filter(pk=1).update(
             enabled=True, server_url="https://idp.example.com", client_id="codex"

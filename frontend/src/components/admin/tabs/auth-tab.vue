@@ -1,10 +1,23 @@
 <template>
   <div id="auth" class="adminReadingColumn">
+    <!--
+      Account & Access policy flags moved here from the Users tab: they
+      govern how people get in (registration, verification, anonymous
+      browsing), which is this tab's subject.
+    -->
+    <AdminSection title="Account & Access">
+      <FlagCard
+        v-for="key in ACCESS_FLAG_KEYS"
+        :key="`f${key}`"
+        :item-key="key"
+      />
+    </AdminSection>
     <div v-if="!settings">
       <v-progress-circular indeterminate />
     </div>
     <v-form v-else ref="form" @submit.prevent="saveDraft">
       <div class="adminProse">
+        <h3>OIDC Single Sign-On</h3>
         <p>
           Codex can log users in through an OIDC identity provider like
           Authentik or Authelia. When enabled, a
@@ -12,6 +25,13 @@
           on the login dialog and the unauthorized screen. Local password login
           keeps working alongside it, so enabling or disabling OIDC never locks
           anyone out. Changes take effect immediately — no restart.
+        </p>
+        <p>
+          Forward-auth gateways like tinyauth are not OIDC identity providers —
+          they sign users in at the reverse proxy instead. For tinyauth (and
+          Authelia or Authentik in proxy mode) use Remote-User header
+          authentication, enabled with <code>CODEX_AUTH_REMOTE_USER=1</code>
+          and documented in the README. Both methods can be on at once.
         </p>
         <p>
           Register this redirect URI with the identity provider:
@@ -274,6 +294,7 @@ import { mapActions, mapState } from "pinia";
 import { APP_BASE } from "@/api/v4/base";
 import AdminActionBar from "@/components/admin/tabs/action-bar.vue";
 import AdminSection from "@/components/admin/tabs/admin-section.vue";
+import FlagCard from "@/components/admin/tabs/flag-card.vue";
 import ConfirmDialog from "@/components/confirm-dialog.vue";
 import { useAdminStore } from "@/stores/admin";
 
@@ -295,12 +316,17 @@ const EDITABLE_FIELDS = Object.freeze([
   "rpInitiatedLogout",
 ]);
 const URL_REGEX = /^https?:\/\/\S+$/;
+// Registration, Verify New User Email, Non-Users (anonymous browsing).
+const ACCESS_FLAG_KEYS = Object.freeze(["RG", "RV", "NU"]);
 
 export function canEnableOidc(draft) {
-  // Mirrors the backend gate: enabling requires a valid server URL and
-  // a client ID (codex.settings.db.oidc_enabled).
+  // Mirrors the serializer gate: enabling requires a provider name (the
+  // button label), a valid server URL, and a client ID.
   return Boolean(
-    draft?.clientId && draft?.serverUrl && URL_REGEX.test(draft.serverUrl),
+    draft?.providerName &&
+    draft?.clientId &&
+    draft?.serverUrl &&
+    URL_REGEX.test(draft.serverUrl),
   );
 }
 
@@ -318,9 +344,11 @@ export default {
     AdminActionBar,
     AdminSection,
     ConfirmDialog,
+    FlagCard,
   },
   data() {
     return {
+      ACCESS_FLAG_KEYS,
       draft: pickFields(undefined),
       clientSecretDraft: "",
       testing: false,
@@ -342,7 +370,7 @@ export default {
     enableHint() {
       return this.canEnable || this.draft.enabled
         ? "Shows the SSO login button. Local password login stays available."
-        : "Enter a valid server URL and client ID below first.";
+        : "Enter a provider name, valid server URL, and client ID below first.";
     },
     clientSecretHint() {
       if (this.clientSecretDraft) {
@@ -369,10 +397,13 @@ export default {
     },
   },
   mounted() {
+    // The Account & Access FlagCards read the Flag table.
+    this.loadTables(["Flag"]);
     this.loadOidcSettings();
   },
   methods: {
     ...mapActions(useAdminStore, [
+      "loadTables",
       "loadOidcSettings",
       "updateOidcSettings",
       "testOidcConnection",

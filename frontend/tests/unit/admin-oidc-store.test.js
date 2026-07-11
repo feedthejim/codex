@@ -45,19 +45,19 @@ beforeEach(() => {
 });
 
 describe("canEnableOidc — enable-switch gate", () => {
-  it("requires both a valid server URL and a client ID", () => {
+  const complete = Object.freeze({
+    providerName: "Authentik",
+    serverUrl: "https://idp.example.com",
+    clientId: "codex",
+  });
+
+  it("requires a provider name, a valid server URL, and a client ID", () => {
     expect(canEnableOidc({})).toBe(false);
-    expect(canEnableOidc({ serverUrl: "https://idp.example.com" })).toBe(false);
-    expect(canEnableOidc({ clientId: "codex" })).toBe(false);
-    expect(canEnableOidc({ serverUrl: "not a url", clientId: "codex" })).toBe(
-      false,
-    );
-    expect(
-      canEnableOidc({
-        serverUrl: "https://idp.example.com",
-        clientId: "codex",
-      }),
-    ).toBe(true);
+    expect(canEnableOidc({ ...complete, providerName: "" })).toBe(false);
+    expect(canEnableOidc({ ...complete, serverUrl: "" })).toBe(false);
+    expect(canEnableOidc({ ...complete, clientId: "" })).toBe(false);
+    expect(canEnableOidc({ ...complete, serverUrl: "not a url" })).toBe(false);
+    expect(canEnableOidc(complete)).toBe(true);
   });
 });
 

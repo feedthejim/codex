@@ -10,7 +10,8 @@ from codex.models import OIDCSettings
 from codex.serializers.models.base import BaseModelSerializer
 
 _ENABLE_REQUIRES_MSG = (
-    "OIDC login cannot be enabled without a server URL and a client ID."
+    "OIDC login cannot be enabled without a provider name,"
+    " a server URL, and a client ID."
 )
 
 
@@ -31,17 +32,19 @@ class OIDCSettingsSerializer(BaseModelSerializer):
         """
         Reject an enabled-but-unconfigured state.
 
-        The UI disables the enable switch until a server URL and client
-        ID are present; this enforces the same invariant for API clients
-        and for partial updates that blank a prerequisite while leaving
-        ``enabled`` on. Merges the incoming fields over the saved row so
-        partial PUTs validate against the effective result.
+        The UI disables the enable switch until a provider name, server
+        URL, and client ID are present; this enforces the same invariant
+        for API clients and for partial updates that blank a prerequisite
+        while leaving ``enabled`` on. Merges the incoming fields over the
+        saved row so partial PUTs validate against the effective result.
         """
         merged = {
             field: attrs.get(field, getattr(self.instance, field, ""))
-            for field in ("enabled", "server_url", "client_id")
+            for field in ("enabled", "provider_name", "server_url", "client_id")
         }
-        if merged["enabled"] and not (merged["server_url"] and merged["client_id"]):
+        if merged["enabled"] and not (
+            merged["provider_name"] and merged["server_url"] and merged["client_id"]
+        ):
             raise ValidationError({"enabled": _ENABLE_REQUIRES_MSG})
         return attrs
 
