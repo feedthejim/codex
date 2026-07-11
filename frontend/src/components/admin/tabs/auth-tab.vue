@@ -102,6 +102,9 @@
             <v-text-field
               v-model="draft.clientId"
               label="Client ID"
+              hint="Issued by the identity provider when you register Codex
+                as a client application there."
+              persistent-hint
               hide-details="auto"
               density="compact"
               autocomplete="off"
@@ -160,6 +163,12 @@
             <v-checkbox
               v-model="draft.pkce"
               label="PKCE (S256)"
+              hint="Proof Key for Code Exchange — proves to the identity
+                provider that the login that finishes is the one Codex
+                started, so an intercepted login code can't be redeemed by
+                anyone else. Authentik and Authelia both support it;
+                leave on."
+              persistent-hint
               density="compact"
               hide-details="auto"
             />
@@ -182,7 +191,9 @@
             <v-text-field
               v-model="draft.usernameClaim"
               label="Username Claim"
-              hint="Falls back to email, then sub."
+              hint="A claim is a field in the identity the provider sends.
+                This one becomes the Codex username; falls back to email,
+                then to the opaque account ID (sub)."
               persistent-hint
               hide-details="auto"
               density="compact"
@@ -222,6 +233,9 @@
             <v-text-field
               v-model="draft.groupsClaim"
               label="Groups Claim"
+              hint="The claim (identity field) that carries the user's group
+                list. 'groups' for both Authentik and Authelia."
+              persistent-hint
               hide-details="auto"
               density="compact"
             />
