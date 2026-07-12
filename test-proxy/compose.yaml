@@ -92,7 +92,13 @@ services:
     image: ghcr.io/steveiliop56/tinyauth:v5
     restart: unless-stopped
     environment:
-      TINYAUTH_APPURL: http://localhost:3232
+      # tinyauth v5 derives a cookie domain from this URL and rejects
+      # single-label hosts ("localhost") and IPs — it must be a dotted
+      # name. localtest.me and all its subdomains resolve to 127.0.0.1 via
+      # public DNS (works in every browser, no /etc/hosts), so the session
+      # cookie set for `.localtest.me` is shared with the gated Codex host
+      # (codex.localtest.me:8081). See forwardauth.conf and README Test 2.
+      TINYAUTH_APPURL: http://tinyauth.localtest.me:3232
       # test / insecure-test-password (bcrypt). Compose interpolates $, so
       # every $ in the hash is doubled. Regenerate with:
       #   docker run -i -t --rm ghcr.io/steveiliop56/tinyauth:v5 \
@@ -102,7 +108,7 @@ services:
       # and declares VOLUME /data — so the sqlite DB must live under /data,
       # not the default ./tinyauth.db in the unwritable workdir.
       TINYAUTH_DATABASE_PATH: /data/tinyauth.db
-      # The harness runs over plain http://localhost.
+      # The harness runs over plain http.
       TINYAUTH_AUTH_SECURECOOKIE: "false"
     ports:
       - "127.0.0.1:3232:3000"

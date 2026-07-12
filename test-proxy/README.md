@@ -15,13 +15,18 @@ Every credential in this directory is public throwaway test data.
 
 ## Pieces
 
-| Piece            | Where                                                          | URL                     |
-| ---------------- | -------------------------------------------------------------- | ----------------------- |
-| authentik        | `compose.yaml`                                                 | <http://localhost:9010> |
-| tinyauth         | `compose.yaml`                                                 | <http://localhost:3232> |
-| nginx plain      | `compose.yaml` + `server.conf`                                 | <http://localhost:8080> |
-| nginx gated      | `compose.yaml` + `forwardauth.conf`                            | <http://localhost:8081> |
+| Piece            | Where                                                          | URL                                 |
+| ---------------- | -------------------------------------------------------------- | ----------------------------------- |
+| authentik        | `compose.yaml`                                                 | <http://localhost:9010>             |
+| tinyauth         | `compose.yaml`                                                 | <http://tinyauth.localtest.me:3232> |
+| nginx plain      | `compose.yaml` + `server.conf`                                 | <http://localhost:8080>             |
+| nginx gated      | `compose.yaml` + `forwardauth.conf`                            | <http://codex.localtest.me:8081>    |
 | authentik config | `authentik/blueprints/codex-test.yaml` (applied automatically) |
+
+`*.localtest.me` all resolve to `127.0.0.1` via public DNS — used for the
+tinyauth path because tinyauth v5 refuses to run on a bare `localhost` app URL
+(it sets its session cookie for a parent domain). Everything else stays on
+`localhost`.
 
 The nginx service and `bin/run-test-proxy.sh` (native) share `server.conf` and
 `forwardauth.conf`; only the backend addresses differ (`upstreams-docker.conf`
@@ -53,8 +58,8 @@ Sanity checks:
 
 ```sh
 curl -s http://localhost:9010/application/o/codex-test/.well-known/openid-configuration | head -c 200
-curl -s -o /dev/null -w '%{http_code}\n' http://localhost:3232/api/auth/nginx   # 401
-curl -s -o /dev/null -w '%{http_code}\n' http://localhost:8080/codex/           # Codex via nginx
+curl -s -o /dev/null -w '%{http_code}\n' http://tinyauth.localtest.me:3232/api/auth/nginx  # 401
+curl -s -o /dev/null -w '%{http_code}\n' http://localhost:8080/codex/                       # Codex via nginx
 ```
 
 > **Native nginx alternative.** If you'd rather run nginx on the host (e.g. to
@@ -108,17 +113,17 @@ curl -s -o /dev/null -w '%{http_code}\n' http://localhost:8080/codex/           
     CODEX_AUTH_REMOTE_USER=1 make dev
     ```
 
-2. Browse <http://localhost:8081/codex/> → redirected to the tinyauth login →
-   sign in `test` / `insecure-test-password` → back in Codex, logged in as
-   `test` (auto-created).
-3. **Gating:** confirm <http://localhost:8081/codex/opds/v1.2/r/0/1> and the
-   WebSocket (`/codex/api/v4/ws`, watch devtools) also bounce to login when
-   logged out of tinyauth.
+2. Browse <http://codex.localtest.me:8081/codex/> → redirected to the tinyauth
+   login (`tinyauth.localtest.me:3232`) → sign in `test` /
+   `insecure-test-password` → back in Codex, logged in as `test` (auto-created).
+3. **Gating:** confirm <http://codex.localtest.me:8081/codex/opds/v1.2/r/0/1>
+   and the WebSocket (`/codex/api/v4/ws`, watch devtools) also bounce to login
+   when logged out of tinyauth.
 4. **Spoof-proofing (gated port):**
 
     ```sh
     curl -s -o /dev/null -w '%{http_code}\n' \
-      -H "Remote-User: admin" http://localhost:8081/codex/api/v4/session
+      -H "Remote-User: admin" http://codex.localtest.me:8081/codex/api/v4/session
     ```
 
     → `302` to the tinyauth login: the gate overrides the client header.
@@ -131,6 +136,29 @@ curl -s -o /dev/null -w '%{http_code}\n' http://localhost:8080/codex/           
 6. **Coexistence:** with both OIDC enabled and `CODEX_AUTH_REMOTE_USER=1`, both
    login paths work at once (8081 header-auths you; 8080 still offers the SSO
    button).
+
+## Troubleshooting
+
+**Vite HMR won't start / "port 5173".** The harness does not use 5173 — it
+publishes only `9010`, `8080`, `8081`, and `3232` (check with
+`docker compose -f test-proxy/compose.yaml config | grep published`). A blocked
+Vite HMR is almost always a leftover `vite` from a previous `make dev` that
+didn't exit cleanly:
+
+```sh
+lsof -i :5173         # find whatever holds 5173
+pkill -f vite         # or kill the specific PID, then re-run make dev
+```
+
+**"address already in use" on 8080/8081.** The compose `nginx` service and the
+native `make dev-reverse-proxy` both bind 8080/8081 — run one or the other, not
+both.
+
+**tinyauth restart loop: "invalid app url, must be at least second level
+domain".** That's tinyauth v5 rejecting a bare `localhost` app URL. The current
+`compose.yaml` uses `tinyauth.localtest.me` to satisfy it; if you still see
+this, you're on an older copy — `git pull` / re-read `compose.yaml` and
+`docker compose ... up -d --force-recreate tinyauth`.
 
 ## Reset
 
