@@ -124,10 +124,17 @@ services:
   nginx:
     image: docker.io/library/nginx:stable-alpine
     restart: unless-stopped
-    # Codex runs natively on the host via `make dev`; reach it through the
-    # host gateway (automatic on Docker Desktop, explicit here for Linux).
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
+    # Codex runs natively on the host via `make dev`; nginx reaches it at
+    # host.docker.internal:9810 (upstreams-docker.conf).
+    #
+    # Docker Desktop (macOS/Windows) provides host.docker.internal built-in
+    # as an IPv4 address — leave the extra_hosts below commented there.
+    # Uncommenting it maps the name to the `host-gateway`, which on
+    # IPv6-enabled Docker Desktop is a ULA (fdXX::254) that Granian doesn't
+    # listen on, so nginx logs "connect()... Network unreachable" and only
+    # then falls back to IPv4. On LINUX (no built-in), UNCOMMENT it:
+    # extra_hosts:
+    #   - "host.docker.internal:host-gateway"
     ports:
       - "127.0.0.1:8080:8080"
       - "127.0.0.1:8081:8081"

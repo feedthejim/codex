@@ -139,6 +139,29 @@ curl -s -o /dev/null -w '%{http_code}\n' http://localhost:8080/codex/           
 
 ## Troubleshooting
 
+**"Login with Authentik" fails with "could not be reached", authentik logs
+"Invalid grant_type for provider".** authentik 2026.x added a `grant_types`
+field that defaults to empty in blueprints, so the provider allows no grants.
+The blueprint now sets `grant_types: [authorization_code, refresh_token]`. If
+you brought the stack up before this fix, authentik still has the old provider —
+re-apply the blueprint:
+
+```sh
+docker compose -f test-proxy/compose.yaml restart authentik-worker
+# then wait ~30s, or edit the blueprint file to retrigger the watcher.
+```
+
+Verify in the authentik UI (Applications → Providers → codex-test-provider →
+Edit → Advanced protocol settings → the flow allows the authorization_code
+grant).
+
+**nginx logs "connect() to [fd..::254]:9810 failed (Network unreachable)".**
+Harmless — nginx tries the IPv6 `host-gateway` (nothing listens there; Granian
+is IPv4) and immediately retries IPv4, which succeeds. It only appears if the
+`extra_hosts` line in the `nginx` service is uncommented on Docker Desktop;
+leave it commented there (built-in `host.docker.internal` is IPv4). On Linux,
+uncomment it — the name doesn't exist otherwise.
+
 **Vite HMR won't start / "port 5173".** The harness does not use 5173 — it
 publishes only `9010`, `8080`, `8081`, and `3232` (check with
 `docker compose -f test-proxy/compose.yaml config | grep published`). A blocked

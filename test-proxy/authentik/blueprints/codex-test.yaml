@@ -69,6 +69,14 @@ entries:
       client_type: confidential
       client_id: codex-test
       client_secret: insecure-codex-test-secret
+      # authentik 2026.x added an explicit grant_types field that defaults
+      # to an EMPTY list in blueprints — without this the authorize step
+      # fails with "Invalid grant_type for provider" and the callback comes
+      # back as error=invalid_request. authorization_code is what Codex
+      # uses; refresh_token matches the authentik UI default.
+      grant_types:
+        - authorization_code
+        - refresh_token
       authorization_flow:
         !Find [
           authentik_flows.flow,
