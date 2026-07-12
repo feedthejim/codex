@@ -2,7 +2,8 @@
 
 Everything needed to manually test Codex authentication before a release: an
 **authentik** OIDC identity provider, a **tinyauth** forward-auth gateway, and
-the local **nginx** reverse proxy that was already here for subpath testing.
+an **nginx** reverse proxy — all as `docker compose` services. Only Codex itself
+runs on the host (`make dev`).
 
 Every credential in this directory is public throwaway test data.
 
@@ -18,9 +19,13 @@ Every credential in this directory is public throwaway test data.
 | ---------------- | -------------------------------------------------------------- | ----------------------- |
 | authentik        | `compose.yaml`                                                 | <http://localhost:9010> |
 | tinyauth         | `compose.yaml`                                                 | <http://localhost:3232> |
-| nginx plain      | `server.conf` (existing)                                       | <http://localhost:8080> |
-| nginx gated      | `forwardauth.conf` (tinyauth)                                  | <http://localhost:8081> |
+| nginx plain      | `compose.yaml` + `server.conf`                                 | <http://localhost:8080> |
+| nginx gated      | `compose.yaml` + `forwardauth.conf`                            | <http://localhost:8081> |
 | authentik config | `authentik/blueprints/codex-test.yaml` (applied automatically) |
+
+The nginx service and `bin/run-test-proxy.sh` (native) share `server.conf` and
+`forwardauth.conf`; only the backend addresses differ (`upstreams-docker.conf`
+vs `upstreams-native.conf`).
 
 Test identities (all passwords `insecure-test-password` unless noted):
 
@@ -34,15 +39,14 @@ Test identities (all passwords `insecure-test-password` unless noted):
 ## Start everything
 
 ```sh
-# 1. The identity providers (first start pulls images; authentik takes
-#    a minute or two to migrate + apply the blueprint).
+# 1. The whole harness — authentik, tinyauth, AND nginx (plain on 8080,
+#    tinyauth-gated on 8081). First start pulls images; authentik takes a
+#    minute or two to migrate + apply the blueprint.
 docker compose -f test-proxy/compose.yaml up -d
 
 # 2. Codex, as usual (the harness assumes url_path_prefix = "/codex").
+#    nginx reaches it on the host via host.docker.internal.
 make dev
-
-# 3. The reverse proxy (plain on 8080, tinyauth-gated on 8081).
-make dev-reverse-proxy
 ```
 
 Sanity checks:
@@ -50,7 +54,16 @@ Sanity checks:
 ```sh
 curl -s http://localhost:9010/application/o/codex-test/.well-known/openid-configuration | head -c 200
 curl -s -o /dev/null -w '%{http_code}\n' http://localhost:3232/api/auth/nginx   # 401
+curl -s -o /dev/null -w '%{http_code}\n' http://localhost:8080/codex/           # Codex via nginx
 ```
+
+> **Native nginx alternative.** If you'd rather run nginx on the host (e.g. to
+> also exercise the 8443 TLS/HTTP3 listeners the container path omits), skip the
+> `nginx` service and run `make dev-reverse-proxy` instead — it uses the same
+> `server.conf` / `forwardauth.conf` with localhost backends. Either comment out
+> the `nginx` service or
+> `docker compose ... up -d authentik-server authentik-worker tinyauth postgresql redis`
+> to avoid the 8080/8081 port clash.
 
 ## Test 1 — native OIDC login (authentik)
 

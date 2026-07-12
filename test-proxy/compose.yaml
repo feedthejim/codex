@@ -109,6 +109,38 @@ services:
     volumes:
       - tinyauth_data:/data
 
+  # The reverse proxy in front of Codex — the same nginx that
+  # bin/run-test-proxy.sh runs natively, containerized so nothing has to run
+  # on the host but Codex itself. Serves the plain proxy on :8080 and the
+  # tinyauth-gated proxy on :8081 (plain HTTP; the SSL/QUIC listeners are
+  # native-only). Reuses the shared server.conf / forwardauth.conf; only the
+  # backend upstreams differ (upstreams-docker.conf).
+  nginx:
+    image: docker.io/library/nginx:stable-alpine
+    restart: unless-stopped
+    # Codex runs natively on the host via `make dev`; reach it through the
+    # host gateway (automatic on Docker Desktop, explicit here for Linux).
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    ports:
+      - "127.0.0.1:8080:8080"
+      - "127.0.0.1:8081:8081"
+    volumes:
+      # Numeric prefixes fix include order under the stock image's
+      # `include /etc/nginx/conf.d/*.conf` (inside its http{} block).
+      - ./upstreams-docker.conf:/etc/nginx/conf.d/00-upstreams.conf:ro
+      - ./connection-upgrade.conf:/etc/nginx/conf.d/01-connection-upgrade.conf:ro
+      - ./server.conf:/etc/nginx/conf.d/10-server.conf:ro
+      - ./forwardauth.conf:/etc/nginx/conf.d/20-forwardauth.conf:ro
+      # server.conf's `include ssl-listen.conf` resolves against the /etc/nginx
+      # prefix here; the empty override keeps this path plain-HTTP.
+      - ./ssl-listen-none.conf:/etc/nginx/ssl-listen.conf:ro
+    depends_on:
+      # nginx resolves the `tinyauth` upstream hostname at startup, so the
+      # container must already exist.
+      tinyauth:
+        condition: service_started
+
 volumes:
   authentik_pg:
   authentik_redis:

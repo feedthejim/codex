@@ -82,9 +82,11 @@ mkdir -p "$scaffold/tmp"
 nginx -p "$scaffold" -c "$scaffold/nginx.conf" -t
 
 # Best-effort: surface the ports/backend the committed config actually uses.
+# The SSL listeners live in ssl-listen.conf and the backend in
+# upstreams-native.conf (both shared with the compose nginx service).
 http_port="$(awk '/^[[:space:]]*listen [0-9]+ / && !/ssl/ && !/quic/ {print $2; exit}' "$scaffold/server.conf")"
-https_port="$(awk '/^[[:space:]]*listen [0-9]+ ssl/ {print $2; exit}' "$scaffold/server.conf")"
-backend="$(awk '/proxy_pass[[:space:]]+http:\/\// {gsub(/.*http:\/\/|;.*/, ""); print; exit}' "$scaffold/server.conf")"
+https_port="$(awk '/^[[:space:]]*listen [0-9]+ ssl/ {print $2; exit}' "$scaffold/ssl-listen.conf")"
+backend="$(awk '/upstream codex_backend/{f=1;next} f&&/server/{gsub(/;/,"",$2); print $2; exit}' "$scaffold/upstreams-native.conf")"
 
 cat <<EOF
 [proxy] nginx test reverse proxy  (config: test-proxy/server.conf)
