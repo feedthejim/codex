@@ -347,7 +347,7 @@ class CodexSocialAccountAdapter(DefaultSocialAccountAdapter):
         EXISTING Codex groups are matched; groups are never created because
         they gate library ACLs.
         """
-        if not row or not (row.sync_groups or row.admin_group) or not user:
+        if not (user and row and (row.sync_groups or row.admin_group)):
             return
         group_names = claims.get(row.groups_claim or "groups")
         if not isinstance(group_names, list):
@@ -357,10 +357,16 @@ class CodexSocialAccountAdapter(DefaultSocialAccountAdapter):
             user.groups.set(Group.objects.filter(name__in=names))
         if row.admin_group:
             # The identity provider is authoritative: grants AND revokes.
-            is_admin = row.admin_group in names
-            if user.is_staff != is_admin or user.is_superuser != is_admin:
-                user.is_staff = user.is_superuser = is_admin
-                user.save(update_fields=("is_staff", "is_superuser"))
+            CodexSocialAccountAdapter._sync_admin(
+                user, is_admin=row.admin_group in names
+            )
+
+    @staticmethod
+    def _sync_admin(user, *, is_admin: bool) -> None:
+        """Grant or revoke staff+superuser to match the admin-group claim."""
+        if user.is_staff != is_admin or user.is_superuser != is_admin:
+            user.is_staff = user.is_superuser = is_admin
+            user.save(update_fields=("is_staff", "is_superuser"))
 
 
 class OIDCLoginRedirectView(APIView):

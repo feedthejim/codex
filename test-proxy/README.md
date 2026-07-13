@@ -9,7 +9,7 @@ Every credential in this directory is public throwaway test data.
 
 > **Why authentik and not Authelia?** Authelia refuses to serve OIDC over plain
 > HTTP, which would force self-signed-TLS trust into Codex's discovery/token
-> fetches. authentik runs happily on http://localhost and also supports
+> fetches. authentik runs happily on <http://localhost> and also supports
 > RP-initiated logout, so it exercises every Codex OIDC feature. tinyauth is not
 > an OIDC provider — it tests the Remote-User forward-auth path instead.
 
@@ -155,7 +155,7 @@ Verify in the authentik UI (Applications → Providers → codex-test-provider �
 Edit → Advanced protocol settings → the flow allows the authorization_code
 grant).
 
-**nginx logs "connect() to [fd..::254]:9810 failed (Network unreachable)".**
+**nginx logs `connect() to [fd..::254]:9810 failed (Network unreachable)`.**
 Harmless — nginx tries the IPv6 `host-gateway` (nothing listens there; Granian
 is IPv4) and immediately retries IPv4, which succeeds. It only appears if the
 `extra_hosts` line in the `nginx` service is uncommented on Docker Desktop;
