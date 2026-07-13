@@ -114,7 +114,7 @@ describe("EditPanel — rename toggle", () => {
     await wrapper.vm.fetchRenamePreview();
     expect(HTTP.post).toHaveBeenCalledWith(
       "/admin/tag-write/preflight",
-      // eslint-disable-next-line vitest/valid-expect -- false positive: the plugin misreads expect.any() as chai's `.any` flag chain
+
       expect.objectContaining({ patch: expect.any(String) }),
     );
     expect(wrapper.vm.renamePreviews).toEqual([

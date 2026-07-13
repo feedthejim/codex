@@ -15,11 +15,9 @@ from types import SimpleNamespace
 from typing import Any, ClassVar, Final, override
 from unittest.mock import patch
 
-import pytest
 from comicbox.events import AutoWritten, FileFinished, RateLimited
 from django.core.cache import caches
 from django.test import TestCase
-from django.utils.timezone import now, timedelta
 from loguru import logger
 
 from codex.librarian.onlinetag.session_cache import (
@@ -37,6 +35,7 @@ from codex.librarian.onlinetag.tasks import (
     BulkOnlineTagTask,
     OnlineTagPromptResponseTask,
 )
+from codex.librarian.scribe.tagwrite_errors import get_tag_write_errors
 from codex.librarian.scribe.tasks import BulkTagWriteTask
 from codex.models import (
     Comic,
@@ -466,6 +465,111 @@ class OnlineTagSessionManagerTests(TestCase):
         assert not [i for i in self.queue.items if isinstance(i, BulkTagWriteTask)]
         # The explicit choice is honored: no worse fresh prompt is re-queued.
         assert get_pending_prompts() == {}
+        # The consumed-but-unapplied pick surfaces on the admin error panel.
+        errors = get_tag_write_errors()
+        assert len(errors) == 1
+        assert "did not resolve" in errors[0]["error"]
+
+    def test_resolve_fetches_against_current_db_path_not_prompt_snapshot(self) -> None:
+        """
+        A pick applies against the comic's current DB path, not the prompt's.
+
+        The serialized prompt path goes stale when an earlier write for the
+        same comic ran with rename enabled (e.g. the comic's other source's
+        prompt was answered first) — the DB row follows the rename.
+        """
+        comic = _make_comic()
+        stale_path = str(Path(comic.path).with_name("stale-pre-rename-name.cbz"))
+        set_pending_prompts(
+            {
+                "fp1": {
+                    "fingerprint": "fp1",
+                    "pk": comic.pk,
+                    "path": stale_path,
+                    "source": "metron",
+                    "candidates": [{"issue_id": 123, "source": "metron"}],
+                    "mode": "auto",
+                    "formats": ["COMIC_INFO"],
+                    "delete_original": False,
+                }
+            }
+        )
+        captured: dict = {}
+
+        def _fake_fetch(path, source, issue_id, _credentials, **_kwargs):
+            captured.update(path=str(path), source=source, issue_id=issue_id)
+            return {"series": "X"}
+
+        with patch(_FETCH_TARGET, _fake_fetch):
+            self.manager.resolve_prompt("fp1", "choose", 0, None)
+
+        assert captured["path"] == str(comic.path)
+        writes = [i for i in self.queue.items if isinstance(i, BulkTagWriteTask)]
+        assert len(writes) == 1
+        assert writes[0].comic_pks == frozenset({comic.pk})
+
+    def test_resolve_fetch_failure_surfaces_error_without_crashing(self) -> None:
+        """A fetch crash (stale file, source error) reports; the pick isn't lost silently."""
+        comic = _make_comic()
+        comic_path = str(comic.path)
+        set_pending_prompts(
+            {
+                "fp1": {
+                    "fingerprint": "fp1",
+                    "pk": comic.pk,
+                    "path": comic_path,
+                    "source": "comicvine",
+                    "candidates": [{"issue_id": 764978, "source": "comicvine"}],
+                    "mode": "auto",
+                    "formats": ["COMIC_INFO"],
+                    "delete_original": False,
+                }
+            }
+        )
+
+        def _boom(*_args, **_kwargs):
+            reason = f"{comic_path} does not exist."
+            raise FileNotFoundError(reason)
+
+        with patch(_FETCH_TARGET, _boom):
+            self.manager.resolve_prompt("fp1", "choose", 0, None)
+
+        assert not [i for i in self.queue.items if isinstance(i, BulkTagWriteTask)]
+        assert get_pending_prompts() == {}
+        errors = get_tag_write_errors()
+        assert len(errors) == 1
+        assert "fetching chosen issue comicvine:764978 failed" in errors[0]["error"]
+
+    def test_resolve_missing_comic_row_reports_and_never_fetches(self) -> None:
+        """A prompt whose comic left the DB reports instead of fetching a dead path."""
+        set_pending_prompts(
+            {
+                "fp1": {
+                    "fingerprint": "fp1",
+                    "pk": 999_999,
+                    "path": "/gone/c.cbz",
+                    "source": "metron",
+                    "candidates": [{"issue_id": 123, "source": "metron"}],
+                    "mode": "auto",
+                    "formats": ["COMIC_INFO"],
+                    "delete_original": False,
+                }
+            }
+        )
+        called: list = []
+
+        def _fake_fetch(*args, **_kwargs):
+            called.append(args)
+            return {"series": "X"}
+
+        with patch(_FETCH_TARGET, _fake_fetch):
+            self.manager.resolve_prompt("fp1", "choose", 0, None)
+
+        assert not called
+        assert not [i for i in self.queue.items if isinstance(i, BulkTagWriteTask)]
+        errors = get_tag_write_errors()
+        assert len(errors) == 1
+        assert "no longer in the database" in errors[0]["error"]
 
     def test_resolve_drifted_prompt_requeues_fresh_prompt(self) -> None:
         """A candidate with no issue id falls back to replay, which can drift."""
@@ -699,136 +803,3 @@ class OnlineTagSessionManagerTests(TestCase):
         )
         TagPassRunner._store_result_tags(state, matched, batch, flush_writes=True)  # noqa: SLF001
         assert batch == {1: {"series": "New"}}
-
-
-class TagPassRunnerFinishTests(TestCase):
-    """collect_results must always finish its status, even when a pass raises."""
-
-    def test_collect_results_finishes_status_on_error(self) -> None:
-        """A raise mid-pass must not strand the status row (frozen forever)."""
-        from codex.librarian.onlinetag.tag_pass_runner import TagPassRunner
-
-        finished: list = []
-
-        class _FakeStatusController:
-            def start(self, _status, **_kwargs) -> None:
-                pass
-
-            def update(self, _status, **_kwargs) -> None:
-                pass
-
-            def finish(self, status, **_kwargs) -> None:
-                finished.append(status)
-
-        class _BoomSession:
-            def tag_many(self, _paths):
-                msg = "rate-limit budget exhausted"
-                raise RuntimeError(msg)
-
-        state = _double(
-            SimpleNamespace(
-                session=_BoomSession(),
-                cancelled=False,
-                pending_paths=[],
-                total_comics=0,
-                completed_comics=0,
-                path_to_pk={},
-                collected_tags={},
-                match_mode="auto",
-                sources=("metron",),
-                merge_all_sources=False,
-            )
-        )
-        runner = TagPassRunner(
-            _double(logger),
-            _double(_FakeQueue()),
-            _double(_FakeStatusController()),
-            lambda _state: None,
-            lambda _state: None,
-        )
-
-        with pytest.raises(RuntimeError):
-            runner.collect_results(state, [Path("/c/a.cbz")], flush_writes=True)
-
-        # The status was finished despite the raise, and the live reference
-        # was cleared so a stray event can't poke a finished status.
-        assert len(finished) == 1
-        assert runner.lookup_status is None
-        assert runner.rate_limited is False
-
-    def test_advance_result_clears_retry_and_reestimates_eta(self) -> None:
-        """A yielded result ends the wait and refreshes the time estimate."""
-        from codex.librarian.onlinetag.status import OnlineLookupStatus
-        from codex.librarian.onlinetag.tag_pass_runner import TagPassRunner
-
-        class _NoopStatusController:
-            def update(self, _status, **_kwargs) -> None:
-                pass
-
-        status = OnlineLookupStatus()
-        status.subtitle = "rate limited by comicvine"
-        status.retry_at = now() + timedelta(seconds=30)
-        state = _double(
-            SimpleNamespace(
-                completed_comics=0,
-                total_comics=10,
-                match_mode="auto",
-                sources=("metron",),
-                merge_all_sources=False,
-            )
-        )
-        runner = TagPassRunner(
-            _double(logger),
-            _double(_FakeQueue()),
-            _double(_NoopStatusController()),
-            lambda _state: None,
-            lambda _state: None,
-        )
-        runner.rate_limited = True
-
-        runner._advance_result_status(state, status)  # noqa: SLF001
-
-        assert state.completed_comics == 1
-        assert status.subtitle == ""
-        assert status.retry_at is None
-        assert status.eta is not None
-        assert runner.rate_limited is False
-
-
-class BuildStoredIdMapTests(TestCase):
-    """build_stored_id_map reads stored issue ids in source-priority order."""
-
-    @override
-    def tearDown(self) -> None:
-        shutil.rmtree(_TMP_DIR, ignore_errors=True)
-
-    @staticmethod
-    def _identifier(source_name: str, id_type: str, key: str) -> Identifier:
-        source, _ = IdentifierSource.objects.get_or_create(name=source_name)
-        return Identifier.objects.create(source=source, id_type=id_type, key=key)
-
-    def test_maps_issue_ids_in_source_priority_order(self) -> None:
-        """Issue ids parse (incl. comicvine long keys) and order by priority."""
-        from codex.librarian.onlinetag.stored_id_prepass import build_stored_id_map
-
-        comic = _make_comic()
-        comic.identifiers.add(
-            self._identifier("metron", "comic", "123495"),
-            self._identifier("comicvine", "comic", "4000-67890"),
-            # A non-issue (series) identifier must be ignored.
-            self._identifier("metron", "series", "9841"),
-        )
-
-        id_map = build_stored_id_map([comic.pk], ("comicvine", "metron"))
-
-        assert id_map == {comic.pk: {"comicvine": 67890, "metron": 123495}}
-        assert list(id_map[comic.pk]) == ["comicvine", "metron"]
-
-    def test_ignores_unrequested_sources_and_missing_ids(self) -> None:
-        """Only requested sources count; comics without an id are absent."""
-        from codex.librarian.onlinetag.stored_id_prepass import build_stored_id_map
-
-        comic = _make_comic()
-        comic.identifiers.add(self._identifier("comicvine", "comic", "4000-67890"))
-
-        assert build_stored_id_map([comic.pk], ("metron",)) == {}

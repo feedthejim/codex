@@ -28,6 +28,7 @@ const TABLE_TTL_MS = Object.freeze({
 export const TABS = Object.freeze([
   "Users",
   "Groups",
+  "Auth",
   "Email",
   "Libraries",
   "Tagging",
@@ -61,6 +62,7 @@ export const useAdminStore = defineStore("admin", {
     stats: undefined,
     taggingDefaults: undefined,
     emailSettings: undefined,
+    oidcSettings: undefined,
     throttleSettings: undefined,
     apiKey: "",
     activeTab: "Libraries",
@@ -437,6 +439,58 @@ export const useAdminStore = defineStore("admin", {
       const commonStore = useCommonStore();
       try {
         const response = await API.sendEmailTest(data);
+        commonStore.clearErrors();
+        return response.data;
+      } catch (error) {
+        commonStore.setErrors(error);
+        return undefined;
+      }
+    },
+    async loadOidcSettings({ force = false } = {}) {
+      if (this._requireAdmin()) return false;
+      if (!force) {
+        const ttl = DYNAMIC_TTL_MS;
+        const last = this.timestamps.OidcSettings || 0;
+        if (last && Date.now() - last < ttl) {
+          return true;
+        }
+      }
+      await API.getOidcSettings()
+        .then((response) => {
+          this.oidcSettings = response.data;
+          this.timestamps.OidcSettings = Date.now();
+          return true;
+        })
+        .catch(console.warn);
+    },
+    async updateOidcSettings(data) {
+      if (this._requireAdmin()) return false;
+      const commonStore = useCommonStore();
+      await API.updateOidcSettings(data)
+        .then(async (response) => {
+          this.oidcSettings = response.data;
+          this.timestamps.OidcSettings = Date.now();
+          commonStore.clearErrors();
+          // Keep the auth store's public OIDC flags — which drive the
+          // "Login with <provider>" button — in sync with the settings
+          // just saved, so toggling OIDC on/off is reflected without a
+          // manual page reload. OIDCSettings is a singleton (no
+          // admin.flags.changed websocket broadcast), so refresh here.
+          await useAuthStore().loadAdminFlags();
+          return true;
+        })
+        .catch(commonStore.setErrors);
+    },
+    /*
+     * Probe the identity provider's discovery document, optionally with
+     * a not-yet-saved server URL override. Returns the endpoint report
+     * from the server; errors land on the common store too.
+     */
+    async testOidcConnection(data) {
+      if (this._requireAdmin()) return undefined;
+      const commonStore = useCommonStore();
+      try {
+        const response = await API.testOidcConnection(data);
         commonStore.clearErrors();
         return response.data;
       } catch (error) {

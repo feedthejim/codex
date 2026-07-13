@@ -32,6 +32,7 @@ __all__ = (
     "ComicboxTaggingDefaults",
     "EmailSettings",
     "LibrarianStatus",
+    "OIDCSettings",
     "ThrottleSettings",
     "Timestamp",
 )
@@ -172,6 +173,59 @@ class EmailSettings(BaseModel):
         """Constraints."""
 
         verbose_name_plural = "EmailSettings"
+
+
+class OIDCSettings(BaseModel):
+    """
+    Singleton OIDC (SSO) client configuration.
+
+    The sole source of OIDC config — edited in the Admin UI Auth tab and
+    read at request time (``codex.settings.db.get_oidc_settings``), so
+    enabling, disabling, or repointing the identity provider takes
+    effect on the next request without a restart. Toggling only adds or
+    removes a login method: existing sessions and local password login
+    are unaffected, so an admin cannot lock themselves out here.
+
+    OIDC is effectively enabled only when ``enabled`` AND ``server_url``
+    AND ``client_id`` are all set — see
+    :func:`codex.settings.db.oidc_enabled`.
+
+    ``client_secret`` is encrypted at rest via :class:`EncryptedCharField`
+    using ``FIELD_ENCRYPTION_KEY``.
+    """
+
+    enabled = BooleanField(default=False)
+    provider_name = CharField(max_length=MAX_NAME_LEN, blank=True, default="SSO")
+    # Issuer URLs run long (e.g. Authentik's /application/o/<slug>/).
+    server_url = URLField(max_length=512, blank=True, default="")
+    client_id = CharField(max_length=MAX_NAME_LEN, blank=True, default="")
+    client_secret = EncryptedCharField()
+    scope = CharField(
+        max_length=MAX_NAME_LEN, blank=True, default="openid profile email"
+    )
+    pkce = BooleanField(default=True)
+    token_auth_method = CharField(max_length=MAX_NAME_LEN, blank=True, default="")
+    fetch_userinfo = BooleanField(default=True)
+    username_claim = CharField(
+        max_length=MAX_NAME_LEN, blank=True, default="preferred_username"
+    )
+    create_users = BooleanField(default=True)
+    link_by_email = BooleanField(default=False)
+    sync_groups = BooleanField(default=False)
+    groups_claim = CharField(max_length=MAX_NAME_LEN, blank=True, default="groups")
+    admin_group = CharField(max_length=MAX_NAME_LEN, blank=True, default="")
+    rp_initiated_logout = BooleanField(default=False)
+
+    @override
+    def save(self, *args, **kwargs):
+        """Enforce singleton: always use pk=1."""
+        self.pk = 1
+        super().save(*args, **kwargs)
+
+    class Meta(BaseModel.Meta):
+        """Constraints."""
+
+        verbose_name_plural = "OIDCSettings"
 
 
 class ThrottleSettings(BaseModel):

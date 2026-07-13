@@ -34,6 +34,31 @@
   font-size: d.$text-title;
 }
 
+// Sub-section title (AdminSection's `sub` variant): a small overline so
+// it reads unmistakably subordinate to the h3 section that contains it.
+.adminGroupHeader > h4 {
+  margin: 0;
+  font-size: d.$text-meta;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: rgb(var(--v-theme-textSecondary));
+}
+
+// Nested sub-sections indent under a left rule so containment is visible
+// even when scrolled past the parent header.
+.adminSubGroup {
+  margin-top: d.$space-4;
+  padding-left: d.$space-4;
+  border-left: 2px solid rgba(var(--v-border-color), var(--v-border-opacity));
+}
+
+// Tighter rhythm between sibling sub-sections than between top-level
+// sections (overrides the $space-6 .adminGroup sibling rule above).
+.adminSubGroup + .adminSubGroup {
+  margin-top: d.$space-4;
+}
+
 .adminHint {
   margin-top: d.$space-1;
   font-size: d.$text-small;

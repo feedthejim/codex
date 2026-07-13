@@ -19,8 +19,10 @@ const AdminRestoreTab = () => import("@/components/admin/tabs/restore-tab.vue");
 const AdminStatsTab = () => import("@/components/admin/tabs/stats-tab.vue");
 const AdminTaggingTab = () => import("@/components/admin/tabs/tagging-tab.vue");
 const AdminEmailTab = () => import("@/components/admin/tabs/email-tab.vue");
+const AdminAuthTab = () => import("@/components/admin/tabs/auth-tab.vue");
 const ResetPasswordConfirm = () =>
   import("@/components/auth/reset-password-confirm.vue");
+const SsoError = () => import("@/components/auth/sso-error.vue");
 
 // Both CODEX.LAST_ROUTE (server-injected) and the browser-defaults fallback
 // speak the v4 {collection, parentIds} route dialect now.
@@ -78,6 +80,7 @@ const routes = [
         component: AdminSettingsTab,
       },
       { name: "admin-tagging", path: "tagging", component: AdminTaggingTab },
+      { name: "admin-auth", path: "auth", component: AdminAuthTab },
       { name: "admin-email", path: "email", component: AdminEmailTab },
       { name: "admin-jobs", path: "jobs", component: AdminJobsTab },
       { name: "admin-stats", path: "stats", component: AdminStatsTab },
@@ -88,6 +91,11 @@ const routes = [
     name: "reset-password",
     path: "/auth/reset-password",
     component: ResetPasswordConfirm,
+  },
+  {
+    name: "sso-error",
+    path: "/auth/sso-error",
+    component: SsoError,
   },
   { name: "error", path: "/error/:code", component: HttpError, props: true },
   { name: "404", path: "/:pathMatch(.*)*", redirect: "/error/404" },

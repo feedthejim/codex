@@ -10,7 +10,9 @@ only when a real tagging run fails halfway through.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import TYPE_CHECKING
+from pathlib import Path
+from tempfile import TemporaryDirectory
+from typing import TYPE_CHECKING, Any
 
 from comicbox.formats.base.online import SOURCE_NAMES
 
@@ -58,30 +60,38 @@ def _validate_metron(creds: OnlineCredentials) -> ValidationResult:
 def _validate_comicvine(creds: OnlineCredentials) -> ValidationResult:
     if not creds.comicvine_key:
         return ValidationResult(ok=False, error="API key required.")
+    from requests_cache import DO_NOT_CACHE
     from simyan.comicvine import Comicvine
     from simyan.errors import AuthenticationError, ServiceError
 
-    if creds.comicvine_url:
-        cv = Comicvine(
-            api_key=creds.comicvine_key,
-            cache=None,
-            base_url=creds.comicvine_url,
-            user_agent="codex-credential-check",
-            timeout=_COMICVINE_TIMEOUT_SECS,
-        )
-    else:
-        cv = Comicvine(
-            api_key=creds.comicvine_key,
-            cache=None,
-            user_agent="codex-credential-check",
-            timeout=_COMICVINE_TIMEOUT_SECS,
-        )
-    try:
-        cv.list_publishers(params={"limit": "1"}, max_results=1)
-    except AuthenticationError as err:
-        return ValidationResult(ok=False, error=str(err) or "Authentication failed.")
-    except ServiceError as err:
-        return ValidationResult(ok=False, error=str(err) or "Service error.")
+    # simyan 3.x replaced the cache= kwarg with sqlite cache/ratelimit
+    # files. A credential check must always hit the network — api_key is
+    # excluded from simyan's cache key, so a cached response would
+    # validate any key — so responses are never cached (DO_NOT_CACHE)
+    # and both sqlite files land in a throwaway dir.
+    with TemporaryDirectory(prefix="codex-credential-check-") as tmp:
+        tmp_path = Path(tmp)
+        # dict[str, Any] expansion because DO_NOT_CACHE is an int sentinel
+        # that simyan's timedelta-typed cache_expiry accepts at runtime.
+        kwargs: dict[str, Any] = {
+            "api_key": creds.comicvine_key,
+            "user_agent": "codex-credential-check",
+            "timeout": _COMICVINE_TIMEOUT_SECS,
+            "cache_path": tmp_path / "cache.sqlite",
+            "cache_expiry": DO_NOT_CACHE,
+            "ratelimit_path": tmp_path / "ratelimits.sqlite",
+        }
+        if creds.comicvine_url:
+            kwargs["base_url"] = creds.comicvine_url
+        cv = Comicvine(**kwargs)
+        try:
+            cv.list_publishers(params={"limit": "1"}, max_results=1)
+        except AuthenticationError as err:
+            return ValidationResult(
+                ok=False, error=str(err) or "Authentication failed."
+            )
+        except ServiceError as err:
+            return ValidationResult(ok=False, error=str(err) or "Service error.")
     return ValidationResult(ok=True)
 
 

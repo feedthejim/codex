@@ -163,7 +163,7 @@ class OnlineTagSessionManager:
                 credentials,
                 extra_ids=task.extra_ids,
             )
-        except ComicboxError as exc:
+        except (ComicboxError, OSError) as exc:
             msg = f"Fetching {task.source} issue {task.issue_id} failed: {exc}"
             self.log.warning(f"Online tag by id: {msg} ({path})")
             add_tag_write_error(str(path), msg)
@@ -473,7 +473,7 @@ class OnlineTagSessionManager:
             tags = fetch_tags_by_explicit_id(
                 path, primary_source, primary_id, credentials, extra_ids=extra_ids
             )
-        except ComicboxError as exc:
+        except (ComicboxError, OSError) as exc:
             self.log.warning(f"Online tag stored-id prefetch failed for {path}: {exc}")
             return None
         return (primary_source, tags) if tags else None
@@ -756,6 +756,32 @@ class OnlineTagSessionManager:
             return "manual", f"{source}:{issue_id}"
         return action, payload
 
+    def _report_apply_failure(self, path_str: str, msg: str) -> None:
+        """Log + surface a failed prompt apply in the admin Tagging error panel."""
+        self.log.warning(f"Online tag: {msg} ({path_str})")
+        add_tag_write_error(path_str, msg)
+        self.librarian_queue.put(TAG_WRITE_ERRORS_CHANGED_TASK)
+
+    def _refresh_comic_path(self, pk: int, prompt_path: str) -> str:
+        """
+        Return the comic's current path, preferring the DB row over the prompt.
+
+        A prompt's serialized path goes stale between deferral and answer —
+        most commonly when an earlier write for the same comic ran with
+        rename enabled and moved the file. The DB row follows the rename
+        (via the write's move import), so it is the fresher reference. A
+        missing row means the comic was deleted (or re-imported under a new
+        pk after a rename the DB never synced); surface that instead of
+        fetching against a dead path.
+        """
+        comic = Comic.objects.filter(pk=pk).only("path").first()
+        if comic:
+            return comic.path
+        self._report_apply_failure(
+            prompt_path, "comic no longer in the database; answer not applied"
+        )
+        return ""
+
     def _apply_resolution(
         self,
         prompt: dict[str, Any],
@@ -765,10 +791,13 @@ class OnlineTagSessionManager:
     ) -> None:
         """Build a fresh session, apply the chosen match, and enqueue a write."""
         pk = prompt.get("pk")
-        path_str = prompt.get("path") or ""
+        prompt_path = prompt.get("path") or ""
         source = prompt.get("source") or ""
-        if pk is None or not path_str or not source:
+        if pk is None or not prompt_path or not source:
             self.log.warning("Online tag: prompt missing comic reference; skipping.")
+            return
+        path_str = self._refresh_comic_path(pk, prompt_path)
+        if not path_str:
             return
         credentials = self._build_credentials()
         if not credentials:
@@ -784,7 +813,21 @@ class OnlineTagSessionManager:
         explicit = self._explicit_issue_id(action, payload, source)
         if explicit is not None:
             self._apply_explicit_id(prompt, pk, explicit, path_str, credentials)
-            return
+        else:
+            resolution = (action, payload, chosen_volume_id)
+            self._apply_replayed_search(prompt, pk, path_str, credentials, resolution)
+
+    def _apply_replayed_search(
+        self,
+        prompt: dict[str, Any],
+        pk: int,
+        path_str: str,
+        credentials: OnlineCredentials,
+        resolution: tuple[str, Any, int | None],
+    ) -> None:
+        """Re-search and apply a pick that carries no explicit issue id."""
+        action, payload, chosen_volume_id = resolution
+        source = prompt.get("source") or ""
         # defer_prompts on: the bridged selector consults the preloaded
         # resolution; without it (or a handler) an ambiguous re-search would
         # fall through to comicbox's interactive CLI prompt inside the daemon.
@@ -800,7 +843,13 @@ class OnlineTagSessionManager:
             payload=payload,
             chosen_volume_id=chosen_volume_id,
         )
-        tags = self._first_tags(session, Path(path_str))
+        try:
+            tags = self._first_tags(session, Path(path_str))
+        except (ComicboxError, OSError) as exc:
+            self._report_apply_failure(
+                path_str, f"re-applying chosen match failed: {exc}"
+            )
+            return
         if not tags:
             self._handle_unresolved(prompt, path_str, session)
             return
@@ -832,14 +881,23 @@ class OnlineTagSessionManager:
     ) -> None:
         """Fetch the picked issue by id and enqueue its write (no re-search)."""
         src, issue_id = explicit
-        tags = fetch_tags_by_explicit_id(Path(path_str), src, issue_id, credentials)
+        try:
+            tags = fetch_tags_by_explicit_id(Path(path_str), src, issue_id, credentials)
+        except (ComicboxError, OSError) as exc:
+            # The prompt is already consumed, so a swallowed failure would
+            # silently discard the admin's pick — put it on the error panel.
+            self._report_apply_failure(
+                path_str, f"fetching chosen issue {src}:{issue_id} failed: {exc}"
+            )
+            return
         if tags:
             self._enqueue_resolved_write(prompt, pk, tags, path_str)
         else:
             # The id itself didn't resolve (wrong/unknown issue). Don't re-queue
             # a fresh ambiguous prompt — the admin made an explicit choice.
-            msg = f"chosen issue {src}:{issue_id} did not resolve for {path_str}"
-            self.log.warning(f"Online tag: {msg}.")
+            self._report_apply_failure(
+                path_str, f"chosen issue {src}:{issue_id} did not resolve"
+            )
 
     def _handle_unresolved(
         self, prompt: dict[str, Any], path_str: str, session: OnlineSession

@@ -41,6 +41,9 @@ urlpatterns = [
     # so Vue Router can render the reset screen; without it the catch-all below
     # would redirect the link to the home page.
     path("auth/reset-password/", IndexView.as_view(), name="reset-password"),
+    # Client-side auth route reached from the OIDC adapter's error
+    # redirects (codex/oidc.py). Same catch-all hazard as reset-password.
+    path("auth/sso-error", IndexView.as_view(), name="sso-error"),
     path("", IndexView.as_view(), name="start"),
     re_path(
         ".*",
