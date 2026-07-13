@@ -21,6 +21,10 @@ border-radius: 128px;
     - The configured log level is now honored while reading and writing comic
       metadata.
 
+- Performance
+    - ComicVine online tagging estimates rate-limit waits more accurately, hangs
+      less, and cleans up stale cached responses automatically (comicbox 4.1.1).
+
 ## v2.1.2
 
 - Fixes
