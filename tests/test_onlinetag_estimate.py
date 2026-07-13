@@ -10,12 +10,9 @@ from __future__ import annotations
 
 from typing import Final
 
-import pytest
-
 from codex.librarian.onlinetag.estimate import SOURCE_RATE_PER_MINUTE, estimate_seconds
 
 _METRON_AUTO_SECONDS: Final = 60.0
-_MERGE_SECONDS: Final = 1000.0
 _METRON_RATE: Final = 20
 _COMICVINE_RATE: Final = 3
 
@@ -26,10 +23,18 @@ def test_estimate_seconds_delegates_to_comicbox() -> None:
 
 
 def test_estimate_seconds_passes_merge_flag() -> None:
-    """merge_all_sources reaches comicbox: (metron 2 + comicvine 3) x 10 / 3."""
-    assert estimate_seconds(
-        10, "auto", ("metron", "comicvine"), merge_all_sources=True
-    ) == pytest.approx(_MERGE_SECONDS)
+    """
+    merge_all_sources reaches comicbox and changes the estimate.
+
+    Merge queries every source per comic (summing their paces); first-match-
+    wins stops at the costliest single source. So the same run costs strictly
+    more merged. Assert that forwarding effect rather than comicbox's exact
+    arithmetic, which is comicbox's own test matrix (and rate model) to own.
+    """
+    sources = ("metron", "comicvine")
+    merged = estimate_seconds(10, "auto", sources, merge_all_sources=True)
+    first_wins = estimate_seconds(10, "auto", sources)
+    assert merged > first_wins
 
 
 def test_source_rate_per_minute_reexported() -> None:
