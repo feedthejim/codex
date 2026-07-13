@@ -18,6 +18,10 @@ export const useAuthStore = defineStore("auth", {
       lazyImportMetadata: undefined,
       emailEnabled: undefined,
       remoteUserEnabled: undefined,
+      oidcEnabled: undefined,
+      oidcProviderName: undefined,
+      oidcLoginUrl: undefined,
+      oidcLogoutUrl: undefined,
     },
     user: undefined,
     /*
@@ -116,6 +120,18 @@ export const useAuthStore = defineStore("auth", {
         })
         .catch(commonStore.setErrors);
     },
+    /*
+     * Full-page navigation, not an XHR: the identity provider's login
+     * page must render in the browser, and the chain of redirects
+     * ends back at the SPA root with a fresh session cookie. The URL
+     * arrives prefix-qualified from the ``/session`` payload.
+     */
+    loginSSO() {
+      const url = this.adminFlags.oidcLoginUrl;
+      if (url) {
+        globalThis.location.assign(url);
+      }
+    },
     async logout() {
       /*
        * The user clicked "log out" — clear client-side state
@@ -129,6 +145,12 @@ export const useAuthStore = defineStore("auth", {
        * and-forget, but the menu's UI feedback would benefit from
        * knowing when the call resolves).
        */
+      /*
+       * Captured before the local clear: RP-initiated logout also ends
+       * the identity-provider session. The URL only exists on payloads
+       * for authenticated OIDC-configured sessions.
+       */
+      const oidcLogoutUrl = this.adminFlags.oidcLogoutUrl;
       try {
         await API.logout();
       } catch (error) {
@@ -140,6 +162,19 @@ export const useAuthStore = defineStore("auth", {
          * signing in next doesn't see the previous user's stars.
          */
         useFavoritesStore().clear();
+        if (oidcLogoutUrl) {
+          // Full-page redirect to end the IdP session; the ensuing
+          // reload refreshes the flags on its own.
+          globalThis.location.assign(oidcLogoutUrl);
+        } else {
+          /*
+           * Refresh the public admin flags so the logged-out login
+           * screen reflects anything changed during the session — e.g.
+           * OIDC toggled off hides the "Login with <provider>" button
+           * without a manual page reload.
+           */
+          await this.loadAdminFlags();
+        }
       }
     },
     async changePassword(credentials) {

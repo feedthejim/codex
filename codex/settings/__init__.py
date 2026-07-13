@@ -521,6 +521,12 @@ def _get_installed_apps(features: FeatureFlags) -> tuple[str, ...]:
         "rest_framework",
         "rest_framework.authtoken",
         "rest_registration",
+        # allauth apps are installed unconditionally (like rest_registration);
+        # OIDC behavior is gated at runtime on the OIDCSettings singleton.
+        "allauth",
+        "allauth.account",
+        "allauth.socialaccount",
+        "allauth.socialaccount.providers.openid_connect",
         "corsheaders",
     ]
     if features.django_vite:
@@ -566,6 +572,7 @@ def _get_middleware(features: FeatureFlags) -> tuple[str, ...]:
     if AUTH_FAILED_LOGIN_LOG:
         middleware.append("codex.failed_login_log.RequestContextMiddleware")
     middleware += [
+        "allauth.account.middleware.AccountMiddleware",
         "django.contrib.messages.middleware.MessageMiddleware",
         "django.middleware.clickjacking.XFrameOptionsMiddleware",
         "codex.middleware.CodexMiddleware",
@@ -698,11 +705,41 @@ DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 # Authentication #
 ##################
 
+AUTHENTICATION_BACKENDS = [
+    "django.contrib.auth.backends.ModelBackend",
+    # Authenticates completed OIDC logins (allauth). Inert unless a
+    # sociallogin flow runs, so safe to include unconditionally.
+    "allauth.account.auth_backends.AuthenticationBackend",
+]
 if AUTH_REMOTE_USER:
-    AUTHENTICATION_BACKENDS = [
-        "django.contrib.auth.backends.RemoteUserBackend",
-        "django.contrib.auth.backends.ModelBackend",
-    ]
+    AUTHENTICATION_BACKENDS.insert(0, "django.contrib.auth.backends.RemoteUserBackend")
+
+# django-allauth: native OIDC (SSO) login. Apps and URLs are always
+# installed; behavior is gated at request time on the OIDCSettings DB
+# singleton (no provider app when disabled => allauth 404s).
+SOCIALACCOUNT_ADAPTER = "codex.oidc.CodexSocialAccountAdapter"
+# The init endpoint is a plain GET navigation; state + PKCE provide the
+# anti-forgery binding.
+SOCIALACCOUNT_LOGIN_ON_GET = True
+SOCIALACCOUNT_AUTO_SIGNUP = True
+# Never gate logins on email_verified: Authentik defaults it to False.
+SOCIALACCOUNT_EMAIL_VERIFICATION = "none"
+ACCOUNT_EMAIL_VERIFICATION = "none"
+# No use for stored access/refresh tokens: Codex never calls the
+# identity provider on the user's behalf, and RP-initiated logout uses
+# the spec's client_id parameter instead of id_token_hint (allauth does
+# not retain the raw id_token JWT anyway).
+SOCIALACCOUNT_STORE_TOKENS = False
+# No SOCIALACCOUNT_PROVIDERS: the provider app is built at request time
+# from the OIDCSettings DB singleton (Admin UI Auth tab) by
+# CodexSocialAccountAdapter.list_apps, so config changes are live
+# without a restart.
+# allauth defaults this to "oidc", which would double up with the
+# provider_id path segment: /sso/oidc/oidc/login/. Codex mounts the
+# provider urls at "sso/" (urls/root.py), so /sso/oidc/login/.
+SOCIALACCOUNT_OPENID_CONNECT_URL_PREFIX = ""
+# Where the OIDC callback lands the user after login.
+LOGIN_REDIRECT_URL = GRANIAN_URL_PATH_PREFIX or "/"
 
 # https://docs.djangoproject.com/en/dev/ref/settings/#auth-password-validators
 AUTH_PASSWORD_VALIDATORS = [
@@ -819,6 +856,9 @@ _THROTTLE_RATES = {
     "reset_password": (
         f"{THROTTLE_RESET_PASSWORD}/hour" if THROTTLE_RESET_PASSWORD else None
     ),
+    # The OIDC init endpoint is an unauthenticated redirect; a modest
+    # per-IP cap keeps it from being used to spam the identity provider.
+    "oidc_login": "10/min",
 }
 
 _RENDERER_CLASSES = [

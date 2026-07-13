@@ -2,11 +2,15 @@
   A titled admin block: header (h3 + optional right-aligned actions), an
   optional one-line hint, then its body. The unified replacement for the
   hand-written .adminGroup / .adminGroupHeader / <h3> markup. See DESIGN.md §4.
+
+  The `sub` variant nests inside another AdminSection: a smaller overline
+  h4 title and an indented left rule make the subordination visible (see
+  the Auth tab's OIDC block).
 -->
 <template>
-  <section class="adminGroup">
+  <section class="adminGroup" :class="{ adminSubGroup: sub }">
     <header v-if="title || $slots.actions" class="adminGroupHeader">
-      <h3>{{ title }}</h3>
+      <component :is="sub ? 'h4' : 'h3'">{{ title }}</component>
       <slot name="actions" />
     </header>
     <p v-if="hint || $slots.hint" class="adminHint">
@@ -22,6 +26,7 @@ export default {
   props: {
     title: { type: String, default: "" },
     hint: { type: String, default: "" },
+    sub: { type: Boolean, default: false },
   },
 };
 </script>

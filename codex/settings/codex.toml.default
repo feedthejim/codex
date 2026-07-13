@@ -123,6 +123,10 @@
 # Disable if Codex is exposed directly (otherwise clients can forge their IP).
 # failed_login_log_trust_forwarded_for = true
 
+# OIDC single sign-on (Authentik, Authelia, ...) is configured in the
+# Admin UI under the "Auth" tab, including the client secret (encrypted
+# at rest) and a Test Connection button. There are no TOML keys for it.
+
 # [custom_covers]
 # Maximum size (in megabytes) of a custom-cover upload. This setting
 # is also exposed in the Admin UI under "Custom Covers"; the DB value

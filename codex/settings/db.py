@@ -25,7 +25,12 @@ from django.conf import settings
 from codex.choices.admin import AdminFlagChoices
 
 if TYPE_CHECKING:
-    from codex.models.admin import AdminFlag, EmailSettings, ThrottleSettings
+    from codex.models.admin import (
+        AdminFlag,
+        EmailSettings,
+        OIDCSettings,
+        ThrottleSettings,
+    )
 
 THROTTLE_SCOPE_PERIOD: dict[str, str] = {
     "anon": "min",
@@ -95,6 +100,30 @@ def get_email_settings() -> EmailSettings | None:
         return EmailSettings.objects.filter(pk=1).first()
     except Exception:
         return None
+
+
+def get_oidc_settings() -> OIDCSettings | None:
+    """Return the OIDCSettings singleton or None when DB isn't ready."""
+    try:
+        from codex.models.admin import OIDCSettings
+    except (ImportError, RuntimeError):
+        return None
+    try:
+        return OIDCSettings.objects.filter(pk=1).first()
+    except Exception:
+        return None
+
+
+def oidc_enabled(row: OIDCSettings | None = None) -> bool:
+    """
+    Return whether OIDC login is effectively on.
+
+    Requires the enabled switch AND a server_url AND a client_id. Pass
+    the row in when the caller already fetched it.
+    """
+    if row is None:
+        row = get_oidc_settings()
+    return bool(row and row.enabled and row.server_url and row.client_id)
 
 
 def _coalesce(db_value: Any, settings_value: Any) -> Any:

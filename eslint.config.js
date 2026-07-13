@@ -19,6 +19,10 @@ export default defineConfig([
       "codex/templates/**/*.html", // Handled by djlint
       "codex/templates/pwa/serviceworker-register.js", // removes eslint-disable that it then complains about
       "tasks",
+      // Manual SSO test harness: authentik blueprints need flow-style
+      // custom tags (!Find [...]) and compose needs healthcheck arrays,
+      // both of which the yml plugin's block-style rules reject.
+      "test-proxy/",
       // "frontend",
     ],
   },

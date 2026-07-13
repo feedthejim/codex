@@ -24,6 +24,7 @@ from codex.views.admin.library import (
     AdminFolderListView,
     AdminLibraryViewSet,
 )
+from codex.views.admin.oidc import AdminOIDCSettingsView, AdminOIDCTestView
 from codex.views.admin.onlinetag import (
     AdminOnlineTagAbortView,
     AdminOnlineTagActiveView,
@@ -166,6 +167,16 @@ urlpatterns = [
         "email-settings/test",
         AdminEmailTestSendView.as_view(),
         name="email_settings_test",
+    ),
+    path(
+        "oidc-settings",
+        AdminOIDCSettingsView.as_view(),
+        name="oidc_settings",
+    ),
+    path(
+        "oidc-settings/test",
+        AdminOIDCTestView.as_view(),
+        name="oidc_settings_test",
     ),
     path(
         "tagging-defaults",

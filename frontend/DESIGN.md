@@ -75,7 +75,9 @@ Prefer these over bespoke markup. Each enforces the language so it can't drift.
 - **`AdminSection`** (`admin-section.vue`) — a titled block. `title` prop,
   optional `hint` prop or `#hint` slot, optional `#actions` slot (header-right,
   e.g. a Stop or Add button). Replaces the `.adminGroup` + `.adminGroupHeader` +
-  `<h3>` markup.
+  `<h3>` markup. The `sub` boolean prop nests a section inside another
+  AdminSection: a small uppercase overline title (h4) and an indented left rule
+  make the subordination visible (see the Auth tab's OIDC block).
 - **`AdminActionBar`** (`action-bar.vue`) — the Save / Revert (or Save / cancel)
   row. Primary button is `type="submit"` `tonal`; secondary is `text`. Props
   `saveText`, `saving`, `saveDisabled`, `revertDisabled`; emits `revert`.

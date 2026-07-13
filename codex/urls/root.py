@@ -43,6 +43,10 @@ urlpatterns += [
         name="robots",
     ),
     path("api/", include("codex.urls.api.root")),
+    # allauth's OIDC login/callback. Mounted at the root, outside the
+    # namespaced api tree, because allauth reverses its own URL names
+    # without a namespace. The views 404 when no OIDC app is configured.
+    path("sso/", include("allauth.socialaccount.providers.openid_connect.urls")),
     path("opds/", include("codex.urls.opds.root")),
     path("opds", RedirectView.as_view(pattern_name="opds:v1:start")),
     path("health", health_check_view, name="healthcheck"),

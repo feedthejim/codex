@@ -58,7 +58,9 @@ border-radius: 128px;
 ### 🔌 Integrations
 
 - **OPDS 1 & 2** syndication with streaming, search, and authentication.
-- **Remote-User HTTP header SSO** for reverse-proxy single sign-on.
+- **OIDC single sign-on** with identity providers like Authentik and Authelia.
+- **Remote-User HTTP header SSO** for reverse-proxy single sign-on (tinyauth,
+  Authelia, Authentik proxy mode).
 - **Fail2Ban** log for IP-banning failed login attempts.
 
 ### 🪶 Operations
@@ -608,6 +610,9 @@ to 2 queries per second.
   `1` (trust XFF), which is correct when Codex sits behind a reverse proxy. Set
   to `0` when Codex is exposed directly so that clients can't forge
   `X-Forwarded-For` to poison the log.
+- OIDC single sign-on has no environment variables or TOML keys — it is
+  configured in the Admin UI under the **Auth** tab. See the
+  [OIDC Single Sign On](#oauth--oidc) section below.
 
 ### Reverse Proxy
 
@@ -672,28 +677,132 @@ article.
 
 ##### OAuth & OIDC
 
-Codex is not an OIDC client at this time. However the following Remote-User and
-Token Authentication methods may assist other services in providing Single Sign
-On.
+Codex is a native OIDC client. Point it at an identity provider like
+[Authentik](https://goauthentik.io/) or [Authelia](https://www.authelia.com/)
+and a "Login with …" button appears on the login dialog and the unauthorized
+screen. (tinyauth is not an OIDC provider — tinyauth users should use the
+[Remote-User](#remote-user-authentication) method below instead.)
+
+Configure it in the Admin UI under the **Auth** tab — there are no TOML keys or
+environment variables for OIDC. Set at minimum the **Provider Name** (the login
+button label), the issuer **Server URL** (discovery is fetched from
+`<server-url>/.well-known/openid-configuration`), and the **Client ID**, then
+flip the enable switch; the client secret is stored encrypted at rest. A **Test
+Connection** button fetches the provider's discovery document and reports the
+endpoints it advertises before you commit to the config. Every change takes
+effect on the next request — no restart. The tab also carries the user-mapping
+knobs (username claim, auto-provisioning, email linking, group sync, admin
+group) and RP-initiated logout, all documented inline.
+
+Register this redirect URI with your identity provider (including your
+`url_path_prefix` if you use one):
+
+```text
+https://your-host[/url_path_prefix]/sso/oidc/login/callback/
+```
+
+**Identity mapping.** Users are keyed on the stable OIDC `sub` claim. On first
+login, Codex links the login to an existing local user with the same username
+(and by email if **Link by Email** is on); otherwise it creates a new user when
+**Create Users on First Login** is on. With **Sync Groups** on, the identity
+provider's groups claim replaces the user's Codex groups on every login — only
+existing Codex groups are matched, never created — so IdP groups can drive Codex
+library access controls. **Admin Group** members are granted (and, when absent
+from the claim, revoked) Codex admin rights.
+
+⚠️ Username linking includes admin accounts: an identity-provider user named
+`admin` links to Codex's built-in `admin` account. Only enable OIDC against an
+identity provider whose username namespace you control, and change the default
+admin password regardless. ⚠️
+
+**Provider notes.**
+
+- **Authentik:** create an OAuth2/OpenID provider + application. The default
+  `openid profile email` scope works as-is; `groups` is included in the profile
+  scope. RP-initiated logout works.
+- **Authelia:** register Codex as a client in `identity_providers.oidc` with a
+  hashed client secret. Keep **Fetch Userinfo** on (Authelia serves username and
+  email claims only from the userinfo endpoint) and add `groups` to the scope
+  for group sync. Authelia does not implement RP-initiated logout; leave it off.
+
+**Good to know.**
+
+- The client secret is entered in the Admin UI and stored encrypted at rest — it
+  never appears in `codex.toml` or the API responses.
+- Codex sessions live 60 days; disabling a user at the identity provider does
+  not end their existing Codex session. Deactivate the user in Codex too, or
+  lower `SESSION_COOKIE_AGE`-equivalent exposure by logging them out.
+- OIDC-created users have no local password, so OPDS readers can't use HTTP
+  Basic auth for them. Use the per-user API token (User Profile in the sidebar)
+  for OPDS, or set a local password.
+- On first start after upgrading, Codex applies a few small new database tables
+  for the OIDC account linkage and the settings singleton.
+- OIDC login failures are recorded in the [Failed-Login Log](#failed-login-log)
+  when it is enabled.
 
 ##### Remote-User Authentication
 
 Remote-User authentication tells Codex to accept a username from the webserver
 and assume that authentication has already been done. This is very insecure if
-you haven't configured an authenticating reverse proxy in front of Codex.
+you haven't configured an authenticating reverse proxy in front of Codex. This
+is the right method for forward-auth gateways like
+[tinyauth](https://tinyauth.app/), and also works with Authelia's `auth_request`
+mode and Authentik's proxy outpost.
 
-Here's a snipped for configuring nginx with tinyauth to provide this header.
-This snipped it incomplete and assumes that the rest of nginx tinyauth config
-has been done:
+Here's a complete nginx location for the tinyauth case, assuming the tinyauth
+server itself is already configured and reachable at `tinyauth:3000`:
 
 ```nginx
-auth_request_set $tinyauth_remote_user $upstream_http_remote_user;
-proxy_set_header Remote-User $tiny_auth_user;
+# In the http {} block (shared with the WebSocket map above).
+# The internal auth endpoint nginx consults for every request.
+location = /tinyauth {
+    internal                ;
+    proxy_pass              http://tinyauth:3000/api/auth/nginx;
+    proxy_set_header        Host $host;
+    proxy_set_header        X-Original-URL $scheme://$http_host$request_uri;
+    proxy_pass_request_body off;
+    proxy_set_header        Content-Length "";
+}
+
+location ^~ /codex {
+    auth_request     /tinyauth;
+    # Pass the authenticated username to Codex, OVERRIDING anything the
+    # client sent. Never pass the client's own Remote-User through.
+    auth_request_set $remote_user $upstream_http_remote_user;
+    proxy_set_header Remote-User $remote_user;
+    proxy_pass       http://codex:9810;
+    # ... the same proxy_set_header / WebSocket lines as the
+    # Reverse Proxy example above ...
+}
+```
+
+The equivalent Traefik middleware (`forwardAuth` with
+`authResponseHeaders: [Remote-User]`) or Caddy directive (`forward_auth` with
+`copy_headers Remote-User`) works the same way: the proxy authenticates, then
+injects `Remote-User` toward Codex.
+
+Then enable it in Codex with `CODEX_AUTH_REMOTE_USER=1` or:
+
+```toml
+[auth]
+remote_user = true
 ```
 
 ⚠️ Only turn on the `CODEX_AUTH_REMOTE_USER` environment variable if your
 webserver sets the `Remote-User` header itself every time for the Codex
 location, overriding any malicious client that might set it themselves. ⚠️
+
+Checklist for a forward-auth deployment:
+
+- The auth gate covers the **whole** Codex location — including `/opds/` and the
+  WebSocket path `/api/v4/ws` — not just the HTML pages. If you exempt OPDS for
+  reader apps, those requests fall back to Codex's own Basic/token auth, which
+  is fine.
+- A request with a client-forged `Remote-User` header and no proxy auth must be
+  rejected or have the header overwritten (test it with
+  `curl -H "Remote-User: admin"`).
+- Remote-User and OIDC can be enabled at the same time; they are independent
+  paths to a normal Codex session.
 
 ##### HTTP Token Authentication
 
