@@ -163,7 +163,17 @@ export const useAuthStore = defineStore("auth", {
          */
         useFavoritesStore().clear();
         if (oidcLogoutUrl) {
+          // Full-page redirect to end the IdP session; the ensuing
+          // reload refreshes the flags on its own.
           globalThis.location.assign(oidcLogoutUrl);
+        } else {
+          /*
+           * Refresh the public admin flags so the logged-out login
+           * screen reflects anything changed during the session — e.g.
+           * OIDC toggled off hides the "Login with <provider>" button
+           * without a manual page reload.
+           */
+          await this.loadAdminFlags();
         }
       }
     },

@@ -121,16 +121,22 @@ describe("useAdminStore — OIDC settings", () => {
     expect(API.getOidcSettings).not.toHaveBeenCalled();
   });
 
-  it("update round-trips server state", async () => {
+  it("update round-trips server state and refreshes auth public flags", async () => {
     API.updateOidcSettings.mockResolvedValue({
       data: { ...SETTINGS, providerName: "Renamed" },
     });
     const store = adminStore();
+    // Saving OIDC settings must resync the auth store's public flags so the
+    // login button reflects the change without a page reload.
+    const refresh = vi
+      .spyOn(useAuthStore(), "loadAdminFlags")
+      .mockResolvedValue(true);
     await store.updateOidcSettings({ providerName: "Renamed" });
     expect(API.updateOidcSettings).toHaveBeenCalledWith({
       providerName: "Renamed",
     });
     expect(store.oidcSettings.providerName).toBe("Renamed");
+    expect(refresh).toHaveBeenCalled();
   });
 
   it("test connection returns the endpoint report", async () => {

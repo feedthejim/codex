@@ -467,10 +467,16 @@ export const useAdminStore = defineStore("admin", {
       if (this._requireAdmin()) return false;
       const commonStore = useCommonStore();
       await API.updateOidcSettings(data)
-        .then((response) => {
+        .then(async (response) => {
           this.oidcSettings = response.data;
           this.timestamps.OidcSettings = Date.now();
           commonStore.clearErrors();
+          // Keep the auth store's public OIDC flags — which drive the
+          // "Login with <provider>" button — in sync with the settings
+          // just saved, so toggling OIDC on/off is reflected without a
+          // manual page reload. OIDCSettings is a singleton (no
+          // admin.flags.changed websocket broadcast), so refresh here.
+          await useAuthStore().loadAdminFlags();
           return true;
         })
         .catch(commonStore.setErrors);

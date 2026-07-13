@@ -76,11 +76,26 @@ describe("useAuthStore — SSO actions", () => {
     );
   });
 
-  it("logout stays local without an oidcLogoutUrl", async () => {
+  it("logout stays local and refreshes public flags without an oidcLogoutUrl", async () => {
     API.logout.mockResolvedValue({});
+    // The logged-out /session reflects OIDC now disabled.
+    API.getSession.mockResolvedValue({
+      data: { adminFlags: { oidcEnabled: false } },
+    });
     const store = useAuthStore();
+    store.adminFlags.oidcEnabled = true; // stale from the just-ended session
     await store.logout();
     expect(assign).not.toHaveBeenCalled();
+    expect(API.getSession).toHaveBeenCalled();
+    expect(store.adminFlags.oidcEnabled).toBe(false);
+  });
+
+  it("logout skips the flag refresh when doing an RP-initiated redirect", async () => {
+    API.logout.mockResolvedValue({});
+    const store = useAuthStore();
+    store.adminFlags.oidcLogoutUrl = "https://idp.example.com/end-session/";
+    await store.logout();
+    expect(API.getSession).not.toHaveBeenCalled();
   });
 });
 
