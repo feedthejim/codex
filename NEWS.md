@@ -6,6 +6,21 @@ width: 128px;
 border-radius: 128px;
 " />
 
+## v2.2.0 - Single Sign-On
+
+- Features
+    - Single sign-on: log in through an OIDC identity provider such as Authentik
+      or Authelia, configured in the Admin panel's new Auth tab. Optionally
+      auto-create users, sync identity-provider groups to Codex groups, and
+      grant admin from a group.
+
+- Fixes
+    - Answering an online-tagging match prompt now writes to the comic's current
+      file even if it moved since the scan, and reports apply failures instead
+      of silently dropping the match.
+    - The configured log level is now honored while reading and writing comic
+      metadata.
+
 ## v2.1.2
 
 - Fixes
