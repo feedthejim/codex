@@ -6,6 +6,20 @@ width: 128px;
 border-radius: 128px;
 " />
 
+## v2.2.1
+
+- Features
+    - Testing Metron credentials in the Admin panel now shows your account's
+      live rate limits; the daily limit reflects your Metron donor tier.
+    - The online tagging status table shows Metron's live daily budget as a run
+      progresses.
+    - Metron rate limits now come from your account instead of fixed defaults;
+      donor-tier limits are picked up automatically (comicbox 4.3.0).
+
+- Fixes
+    - Online tagging backs off properly when a rate-limited response omits a
+      retry hint (comicbox 4.3.0).
+
 ## v2.2.0 - Single Sign-On
 
 - Features
