@@ -287,6 +287,14 @@ IMPORTER_CHUNK_MEM_FRACTION = get_float(
 # Codex Config: Librarian    #
 ##############################
 
+# Width of generated cover thumbnails. 330 px is sharp at the 165 CSS-pixel
+# card size on 2x/Retina displays. The height is derived from the modal comic
+# cover ratio by the cover renderer.
+THUMBNAIL_WIDTH = max(
+    1,
+    get_int(CODEX_CONFIG, "librarian.thumbnail_width", default=330),
+)
+
 # Worker count for the cover-creation ProcessPoolExecutor. The image
 # pipeline (comicbox file read + PIL LANCZOS resize + WEBP encode) is
 # CPU-bound and trivially parallel across cover targets. Default to

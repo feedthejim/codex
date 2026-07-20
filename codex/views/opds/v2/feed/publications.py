@@ -269,7 +269,9 @@ class OPDS2PublicationBaseView(OPDS2FeedLinksView):
         # also the representative cover pk. Route to the thin per-pk
         # endpoint so the cover pipeline isn't re-run per request.
         kwargs = {"pk": obj.pk}
-        query_params = {"ts": ts}
+        # Version the URL by generated size so client-side image caches are
+        # invalidated when thumbnail_width changes.
+        query_params = {"ts": ts, "w": THUMBNAIL_WIDTH}
         thumb_href_data = HrefData(
             kwargs,
             query_params,

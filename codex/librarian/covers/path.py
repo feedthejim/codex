@@ -2,7 +2,7 @@
 
 from pathlib import Path
 
-from codex.settings import ROOT_CACHE_PATH
+from codex.settings import ROOT_CACHE_PATH, THUMBNAIL_WIDTH
 
 
 class CoverPathMixin:
@@ -26,10 +26,16 @@ class CoverPathMixin:
 
     @classmethod
     def get_cover_path(cls, pk: int, *, custom: bool):
-        """Get cover path for comic pk."""
+        """
+        Get the size-versioned cover path for a comic pk.
+
+        Encoding the configured width in the filename makes a settings change
+        a cache miss instead of serving stale thumbnails at the old size. The
+        orphan-cover cleanup job can remove superseded width variants.
+        """
         cover_path = cls._hex_path(pk)
         root = cls.CUSTOM_COVERS_ROOT if custom else cls.COVERS_ROOT
-        return root / cover_path.with_suffix(".webp")
+        return root / cover_path.with_suffix(f".w{THUMBNAIL_WIDTH}.webp")
 
     @classmethod
     def get_cover_paths(cls, pks, *, custom: bool) -> set:

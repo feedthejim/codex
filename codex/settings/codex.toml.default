@@ -156,6 +156,10 @@
 # chunk_mem_fraction = 0.25
 
 # [librarian]
+# Width in pixels of generated comic cover thumbnails. The default is 330,
+# which provides a sharp 2x image for 165 CSS-pixel cards on Retina displays.
+# Changing this value automatically creates a new size-versioned cache.
+# thumbnail_width = 330
 # Worker count for the cover-generation ProcessPoolExecutor. Image
 # resize + WEBP encode are CPU-bound; default is min(cpu_count, 8).
 # Drop to 2 on NAS-class hosts with 1–2 GB total RAM.

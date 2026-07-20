@@ -571,6 +571,13 @@ Environment variables override values set in the TOML config file.
   `$CODEX_CONFIG_DIR/cache`. Useful for placing the cache on a separate (e.g.
   faster or ephemeral) volume from the rest of the config directory.
 
+#### Cover thumbnails
+
+- `CODEX_THUMBNAIL_WIDTH` sets the width in pixels of generated comic cover
+  thumbnails. The default is 330, suitable for 2x/Retina displays. The height
+  is derived from the cover aspect ratio. Changing the value uses a new,
+  size-versioned cover cache so older thumbnails are not served.
+
 ##### Browser
 
 > **Deprecated:** set Browser Page Size on the Admin **Settings** tab instead;

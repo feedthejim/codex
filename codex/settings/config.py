@@ -29,6 +29,8 @@ _ENV_OVERRIDES: dict[str, str] = {
     "CODEX_LOG_DIR": "logging.log_dir",
     # Cache
     "CODEX_CACHE_DIR": "cache.dir",
+    # Cover thumbnails
+    "CODEX_THUMBNAIL_WIDTH": "librarian.thumbnail_width",
     # Import
     "CODEX_IMPORTER_LINK_FK_BATCH_SIZE": "importer.link_fk_batch_size",
     "CODEX_IMPORTER_LINK_M2M_BATCH_SIZE": "importer.link_m2m_batch_size",
