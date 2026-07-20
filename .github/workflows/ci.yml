@@ -1,7 +1,7 @@
 name: CI
 
 on:
-  workflow_dispatch:
+  workflow_dispatch: {}
   push:
     branches: [main]
   pull_request:
@@ -147,7 +147,8 @@ jobs:
   build:
     name: Build Image (${{ matrix.arch }})
     needs: test
-    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch' ||
+    if:
+      github.event_name == 'push' || github.event_name == 'workflow_dispatch' ||
       (github.base_ref == 'develop' && github.head_ref == 'pre-release')
     strategy:
       matrix:
