@@ -64,6 +64,13 @@ def opds_feed_reverse(
         out_kwargs["collection"] = _collection_for(collection)
         if parent_ids := tuple(pk for pk in (pks or ()) if pk):
             out_kwargs["parent_ids"] = parent_ids
-        if page is not None and int(page) != _FIRST_PAGE:
-            out_query = {**dict(query or {}), "page": page}
+        if page is not None:
+            # A listing link may inherit filters from the current request, but
+            # its page is defined by its route kwargs.  Keeping an inherited
+            # ``page=N`` here makes children emitted from catalog page N open
+            # on that same page, which is often out of range for the child.
+            out_query = dict(query or {})
+            out_query.pop("page", None)
+            if int(page) != _FIRST_PAGE:
+                out_query["page"] = page
     return reverse(url_name, kwargs=out_kwargs, query=out_query)
