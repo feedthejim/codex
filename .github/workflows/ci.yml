@@ -256,6 +256,7 @@ jobs:
             "${IMAGE}:${VERSION}-arm64"
 
       - name: Publish to PyPI
+        if: github.repository == 'ajslater/codex'
         run: uv publish dist/*
         env:
           UV_PUBLISH_TOKEN: ${{ secrets.PYPI_TOKEN }}
