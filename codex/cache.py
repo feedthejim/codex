@@ -1,16 +1,16 @@
 """
 Cache backends.
 
-Django's ``FileBasedCache`` treats a corrupt cache file as fatal: a
+Django's ``FileBasedCache`` treats an unusable cache file as fatal: a
 truncated zlib stream or a partial pickle bubbles up as ``zlib.error``
-or ``pickle.UnpicklingError``, which then crashes whatever query
-happened to fall on that key. A corrupt entry is rare but inevitable
-(a write killed mid-flush leaves a file Django can't decompress) and
-the right behaviour is just "treat it as a miss".
+or ``pickle.UnpicklingError``, while a file written by a management
+process running under another UID raises ``PermissionError``. Any of
+these can crash whatever query happened to fall on that key. The right
+behaviour for an expendable cache entry is just "treat it as a miss".
 
-``ResilientFileBasedCache`` catches those decode errors, deletes the
-bad file, and reports a miss so the caller continues with the
-underlying query instead of returning a 500 to the user.
+``ResilientFileBasedCache`` catches those errors, tries to delete the
+bad file, and reports a miss so the caller continues with the underlying
+query instead of returning a 500 to the user.
 
 It also no-ops ``validate_key``: the base class checks every key for
 memcached compatibility (no spaces / control chars / length > 250)
@@ -31,36 +31,42 @@ from django.core.cache.backends.filebased import FileBasedCache
 from django.utils.connection import ConnectionProxy
 from loguru import logger
 
-_CORRUPT_CACHE_ERRORS: tuple[type[BaseException], ...] = (
+_UNUSABLE_CACHE_ERRORS: tuple[type[BaseException], ...] = (
     zlib.error,
     UnpicklingError,
     EOFError,
+    PermissionError,
 )
 
 
 class ResilientFileBasedCache(FileBasedCache):
-    """Cache backend that tolerates corrupt cache entries."""
+    """Cache backend that tolerates corrupt or unreadable cache entries."""
 
-    def _discard_corrupt(self, fname: str, exc: BaseException) -> None:
-        logger.debug(f"Discarded corrupt cache file {fname}: {exc}")
-        self._delete(fname)  # pyright: ignore[reportAttributeAccessIssue], # ty: ignore[unresolved-attribute]
+    def _discard_unusable(self, fname: str, exc: BaseException) -> None:
+        try:
+            deleted = self._delete(fname)  # pyright: ignore[reportAttributeAccessIssue], # ty: ignore[unresolved-attribute]
+        except OSError as delete_exc:
+            logger.debug(f"Could not discard unusable cache file {fname}: {delete_exc}")
+        else:
+            action = "Discarded" if deleted else "Ignored"
+            logger.debug(f"{action} unusable cache file {fname}: {exc}")
 
     @override
     def get(self, key, default=None, version=None):
         try:
             return super().get(key, default=default, version=version)
-        except _CORRUPT_CACHE_ERRORS as exc:
+        except _UNUSABLE_CACHE_ERRORS as exc:
             fname = self._key_to_file(key, version)  # pyright: ignore[reportAttributeAccessIssue], # ty: ignore[unresolved-attribute]
-            self._discard_corrupt(fname, exc)
+            self._discard_unusable(fname, exc)
             return default
 
     @override
     def touch(self, key, timeout=DEFAULT_TIMEOUT, version=None):
         try:
             return super().touch(key, timeout=timeout, version=version)
-        except _CORRUPT_CACHE_ERRORS as exc:
+        except _UNUSABLE_CACHE_ERRORS as exc:
             fname = self._key_to_file(key, version)  # pyright: ignore[reportAttributeAccessIssue], # ty: ignore[unresolved-attribute]
-            self._discard_corrupt(fname, exc)
+            self._discard_unusable(fname, exc)
             return False
 
     @override
