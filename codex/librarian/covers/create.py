@@ -27,7 +27,7 @@ from codex.librarian.covers.status import CreateCoversStatus
 from codex.librarian.covers.tasks import CoverCreateTask
 from codex.librarian.threads import QueuedThread
 from codex.models import Comic, CustomCover
-from codex.settings import COMICBOX_CONFIG, COVER_WORKERS
+from codex.settings import COMICBOX_CONFIG, COVER_WORKERS, THUMBNAIL_WIDTH
 
 if TYPE_CHECKING:
     from collections.abc import Collection
@@ -35,7 +35,6 @@ if TYPE_CHECKING:
     from codex.librarian.tasks import LibrarianTask
 
 _COVER_RATIO = 1.5372233400402415  # modal cover ratio
-THUMBNAIL_WIDTH = 165
 THUMBNAIL_HEIGHT = round(THUMBNAIL_WIDTH * _COVER_RATIO)
 _THUMBNAIL_SIZE = (THUMBNAIL_WIDTH, THUMBNAIL_HEIGHT)
 

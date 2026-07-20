@@ -9,6 +9,7 @@ from comicbox.box import Comicbox
 from django.urls import reverse
 from loguru import logger
 
+from codex.librarian.covers.create import THUMBNAIL_WIDTH
 from codex.settings import COMICBOX_CONFIG
 from codex.views.opds.const import MimeType, Rel
 from codex.views.opds.route import opds_feed_reverse
@@ -41,7 +42,9 @@ class OPDS1EntryLinksMixin:
 
     def _cover_href(self, ts: int) -> str:
         """Pick the thin cover URL for the entry."""
-        query_params = {"ts": ts}
+        # Include the generated size so OPDS clients do not retain a cached
+        # low-resolution cover after the server's thumbnail width changes.
+        query_params = {"ts": ts, "w": THUMBNAIL_WIDTH}
         if custom_pk := getattr(self.obj, "cover_custom_pk", None):
             return reverse(
                 "opds:bin:custom_cover",
